@@ -39,7 +39,8 @@ services:
     image: cloudflare/cloudflared:latest
     restart: unless-stopped
     profiles: [tunnel]
-    command: tunnel --no-autoupdate run
+    # The image's entrypoint already passes --no-autoupdate.
+    command: tunnel run
     environment:
       # Empty default on purpose: compose reads this even when the profile is off.
       TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
