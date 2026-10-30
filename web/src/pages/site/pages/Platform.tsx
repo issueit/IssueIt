@@ -105,11 +105,13 @@ Issueit-Signature: t=1793351564,v1=5f0c…e91a`;
 
 const catalogue = `GET ${origin}/api/catalogue
 
-[
-  { "id": "github", "name": "GitHub Issues", "category": "tracker", "summary": "Creates an issue in a repository." },
-  { "id": "pagerduty", "name": "PagerDuty", "category": "oncall", "summary": "…" },
-  …
-]`;
+{
+  "providers": [
+    { "id": "github", "name": "GitHub Issues", "category": "tracker", "summary": "Opens an issue in a repository for each new report." },
+    { "id": "pagerduty", "name": "PagerDuty", "category": "oncall", "summary": "…" },
+    …
+  ]
+}`;
 
 export default function Platform() {
   return (

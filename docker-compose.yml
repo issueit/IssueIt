@@ -32,6 +32,25 @@ services:
     volumes:
       - data:/data
 
+  # Public HTTPS without opening a port, for people who'd rather not expose
+  # one. Only starts with --profile tunnel. Point the tunnel's public
+  # hostname at http://app:8380, and set APP_URL and TRUST_PROXY to match.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    profiles: [tunnel]
+    command: tunnel --no-autoupdate run
+    environment:
+      # Empty default on purpose: compose reads this even when the profile is off.
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    depends_on:
+      - app
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
 volumes:
   db:
   data:
