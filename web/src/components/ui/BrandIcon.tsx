@@ -74,6 +74,11 @@ type Category = "tracker" | "helpdesk" | "chat" | "notify" | "email" | "oncall" 
  * stay calm. Services without a mark there (Slack, Microsoft and others
  * whose marks aren't licensed for it) get a plain Solar icon for their
  * kind of service rather than an imitation logo.
+ *
+ * Roughly half the catalogue has no mark, so where many sit together the
+ * shared glyphs repeat into runs. Pass fallback="monogram" there to get the
+ * service's initial instead: a letterform stands in for a logo without
+ * pretending to be one, and no two land the same.
  */
 const marks: Record<string, Mark | Category> = {
   github: siGithub,
@@ -226,10 +231,17 @@ const categoryIcons: Record<Category, ComponentType<{ size?: number; "aria-label
   webhook: Routing2Icon,
 };
 
-export function BrandIcon({ provider, name, size = 16, framed }: { provider: string; name?: string; size?: number; framed?: boolean }) {
+export function BrandIcon({ provider, name, size = 16, framed, fallback = "category" }: { provider: string; name?: string; size?: number; framed?: boolean; fallback?: "category" | "monogram" }) {
   const mark = marks[provider] ?? "webhook";
   let icon;
-  if (typeof mark === "string") {
+  if (typeof mark === "string" && fallback === "monogram") {
+    // The first character as the brand writes it, so n8n and ntfy stay lower case.
+    icon = (
+      <span role="img" aria-label={name ?? provider} className="grid place-items-center font-mono leading-none" style={{ width: size, height: size, fontSize: Math.round(size * 0.78) }}>
+        {(name ?? provider).trim().charAt(0)}
+      </span>
+    );
+  } else if (typeof mark === "string") {
     const Icon = categoryIcons[mark];
     icon = <Icon size={size} aria-label={name ?? provider} />;
   } else {

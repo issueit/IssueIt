@@ -3065,7 +3065,7 @@ br.br-sm {
     opacity: 1;
   }
   .marquee-track,
-  .wall-tile::before {
+  .wall-chip::before {
     animation: none !important;
   }
   .about-numbers > div {
@@ -3131,32 +3131,45 @@ br.br-sm {
   border-color: var(--border-strong);
 }
 .wall-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(46px, 1fr));
-  gap: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
   margin: 0;
-  padding: 18px;
+  padding: 16px;
   border-radius: 16px;
   background: var(--surface);
   box-shadow: var(--shadow-float);
   list-style: none;
 }
-.wall-tile {
+.wall-chip {
   position: relative;
-  display: grid;
-  place-items: center;
-  aspect-ratio: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 29px;
+  padding: 0 11px 0 9px;
   border: 1px solid var(--border-subtle);
-  border-radius: var(--r-lg);
+  border-radius: 999px;
   background: var(--bg);
-  color: var(--text-3);
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  white-space: nowrap;
   transition:
-    opacity 300ms var(--ease),
+    opacity var(--t-layout) var(--ease),
+    color var(--t-hover) var(--ease),
+    border-color var(--t-hover) var(--ease),
     transform 300ms var(--ease-site);
 }
-/* The wave is a ring that only changes opacity, so it runs on the
-   compositor rather than repainting 130 tiles a frame. */
-.wall-tile::before {
+/* The mark sits a shade back so the name leads. */
+.wall-chip > :first-child {
+  flex: none;
+  color: var(--text-4);
+  transition: color var(--t-hover) var(--ease);
+}
+/* The sweep is a ring that only changes opacity, so it runs on the
+   compositor rather than repainting 130 chips a frame. */
+.wall-chip::before {
   content: "";
   position: absolute;
   inset: -1px;
@@ -3166,8 +3179,8 @@ br.br-sm {
   opacity: 0;
   pointer-events: none;
 }
-.wall-grid[data-live] .wall-tile::before {
-  animation: tile-wave 9s var(--ease) calc(var(--i) * 55ms) infinite;
+.wall-grid[data-live] .wall-chip::before {
+  animation: tile-wave 9s var(--ease) calc(var(--i) * 34ms) infinite;
 }
 @keyframes tile-wave {
   0%,
@@ -3179,45 +3192,26 @@ br.br-sm {
     opacity: 1;
   }
 }
-.wall-grid[data-focus] .wall-tile {
-  opacity: 0.22;
+.wall-grid[data-focus] .wall-chip {
+  opacity: 0.26;
 }
-.wall-grid[data-focus] .wall-tile::before {
+.wall-grid[data-focus] .wall-chip::before {
   animation: none;
 }
-.wall-grid[data-focus] .wall-tile[data-lit],
-.wall-tile:hover {
+.wall-grid[data-focus] .wall-chip[data-lit],
+.wall-chip:hover {
   z-index: 2;
   opacity: 1;
   color: var(--text);
   border-color: var(--accent-line);
-  transform: translateY(-2px);
+  transform: translateY(-1px);
 }
-.wall-tile:hover::before {
+.wall-grid[data-focus] .wall-chip[data-lit] > :first-child,
+.wall-chip:hover > :first-child {
+  color: var(--text);
+}
+.wall-chip:hover::before {
   animation: none;
-}
-.wall-tile::after {
-  content: attr(data-name);
-  position: absolute;
-  bottom: calc(100% + 6px);
-  left: 50%;
-  padding: 3px 8px;
-  border-radius: var(--r-sm);
-  background: var(--text);
-  color: var(--bg);
-  font-size: var(--fs-2xs);
-  font-weight: 500;
-  white-space: nowrap;
-  opacity: 0;
-  transform: translate(-50%, 4px);
-  transition:
-    opacity var(--t-menu) var(--ease),
-    transform var(--t-menu) var(--ease);
-  pointer-events: none;
-}
-.wall-tile:hover::after {
-  opacity: 1;
-  transform: translate(-50%, 0);
 }
 
 /* The short version at the top of a legal page. */
