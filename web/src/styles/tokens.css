@@ -1,0 +1,219 @@
+/* ------------------------------------------------------------------
+   Design tokens, shared with Kern so the two read as one family.
+   Greyscale by default; every colour, size and motion value used by
+   components comes from here. Feature code never writes a hex value.
+   ------------------------------------------------------------------ */
+
+:root {
+  color-scheme: dark;
+
+  /* Surfaces */
+  --bg: #111111;
+  --bg-sunken: #0d0d0d;
+  --surface: #161616;
+  --surface-2: #1c1c1c;
+  --surface-3: #222222;
+  --hover: rgba(255, 255, 255, 0.055);
+  --hover-strong: rgba(255, 255, 255, 0.085);
+  --active: rgba(255, 255, 255, 0.11);
+  --selection: rgba(255, 255, 255, 0.09);
+  --selection-strong: rgba(255, 255, 255, 0.14);
+
+  /* Lines */
+  --border: #282828;
+  --border-subtle: #1f1f1f;
+  --border-strong: #3a3a3a;
+  --divider: rgba(255, 255, 255, 0.06);
+
+  /* Text */
+  --text: #ededed;
+  --text-2: #a9a9a9;
+  --text-3: #808080;
+  --text-4: #5e5e5e;
+  --text-inverse: #111111;
+
+  /* Accent: greyscale unless personalised */
+  --accent: #e6e6e6;
+  --accent-fg: #111111;
+  --accent-soft: rgba(255, 255, 255, 0.08);
+  --accent-line: rgba(255, 255, 255, 0.55);
+  --focus-ring: #d8d8d8;
+
+  /* Restrained signals, never the only signal */
+  --danger: #e0716f;
+  --danger-soft: rgba(224, 113, 111, 0.12);
+  --warning: #cfae74;
+  --warning-soft: rgba(207, 174, 116, 0.13);
+  --success: #8bb795;
+  --success-soft: rgba(139, 183, 149, 0.12);
+  --update: #5b9cf5;
+  --update-soft: rgba(91, 156, 245, 0.14);
+
+  /* Chart series, in fixed order. Validated for colour-blind separation on --surface. */
+  --viz-1: #3987e5;
+  --viz-2: #d95926;
+  --viz-3: #199e70;
+  --viz-4: #c98500;
+  --viz-5: #d55181;
+  --viz-6: #008300;
+  --viz-7: #9085e9;
+  --viz-8: #e66767;
+  /* One-hue magnitude ramp: near zero recedes toward the surface. */
+  --viz-seq-0: #184f95;
+  --viz-seq-1: #9ec5f4;
+  /* Ordered steps (low to critical), brighter means more on a dark surface. */
+  --viz-ord-1: #1c5cab;
+  --viz-ord-2: #2a78d6;
+  --viz-ord-3: #5598e7;
+  --viz-ord-4: #9ec5f4;
+  --viz-grid: #232323;
+  --viz-axis: #333333;
+
+  /* Series hues, for charts only */
+  --hue-0: #7f9fd6;
+  --hue-1: #c49a6c;
+  --hue-2: #82b48f;
+  --hue-3: #b98fc9;
+
+  /* Elevation: only for things that float */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-pop: 0 10px 32px rgba(0, 0, 0, 0.5), 0 0 0 1px var(--border);
+  --backdrop: rgba(0, 0, 0, 0.42);
+  /* Marketing site only: large showcase frames and the pointer glow */
+  --shadow-float: 0 40px 120px -40px rgba(0, 0, 0, 0.75), 0 0 0 1px var(--border);
+  --glow: rgba(255, 255, 255, 0.055);
+
+  /* Typography */
+  --font-sans: "Inter Variable", "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, "Cascadia Code", Consolas, monospace;
+  --fs-2xs: 10.5px;
+  --fs-xs: 11.5px;
+  --fs-sm: 12.5px;
+  --fs-md: 13.5px;
+  --fs-lg: 15px;
+  --fs-xl: 18px;
+  --fs-2xl: 21px;
+  --lh: 1.45;
+
+  /* Radius */
+  --r-xs: 4px;
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 10px;
+  --r-xl: 12px;
+
+  /* Density */
+  --row-h: 36px;
+  --control-h: 30px;
+  --control-h-sm: 26px;
+  --nav-item-h: 30px;
+  --page-header-h: 46px;
+  --icon: 16px;
+  --icon-sm: 14px;
+
+  /* Motion */
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --t-hover: 110ms;
+  --t-press: 130ms;
+  --t-menu: 150ms;
+  --t-panel: 190ms;
+  --t-layout: 230ms;
+  --enter-scale: 0.97;
+  --enter-shift: 4px;
+
+  --sidebar-w: 220px;
+  --panel-w: 460px;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f6f6f6;
+  --bg-sunken: #efefef;
+  --surface: #ffffff;
+  --surface-2: #fafafa;
+  --surface-3: #f2f2f2;
+  --hover: rgba(0, 0, 0, 0.045);
+  --hover-strong: rgba(0, 0, 0, 0.07);
+  --active: rgba(0, 0, 0, 0.09);
+  --selection: rgba(0, 0, 0, 0.065);
+  --selection-strong: rgba(0, 0, 0, 0.1);
+  --border: #e3e3e3;
+  --border-subtle: #ececec;
+  --border-strong: #cfcfcf;
+  --divider: rgba(0, 0, 0, 0.07);
+  --text: #171717;
+  --text-2: #555555;
+  --text-3: #7a7a7a;
+  --text-4: #a6a6a6;
+  --text-inverse: #ffffff;
+  --accent: #1c1c1c;
+  --accent-fg: #ffffff;
+  --accent-soft: rgba(0, 0, 0, 0.06);
+  --accent-line: rgba(0, 0, 0, 0.5);
+  --focus-ring: #2a2a2a;
+  --danger: #c4413d;
+  --danger-soft: rgba(196, 65, 61, 0.09);
+  --warning: #9a7430;
+  --warning-soft: rgba(154, 116, 48, 0.1);
+  --success: #3f7d4f;
+  --success-soft: rgba(63, 125, 79, 0.09);
+  --update: #2563d9;
+  --update-soft: rgba(37, 99, 217, 0.1);
+  --viz-1: #2a78d6;
+  --viz-2: #eb6834;
+  --viz-3: #1baf7a;
+  --viz-4: #eda100;
+  --viz-5: #e87ba4;
+  --viz-6: #008300;
+  --viz-7: #6250d6;
+  --viz-8: #e34948;
+  --viz-seq-0: #b7d3f6;
+  --viz-seq-1: #104281;
+  --viz-ord-1: #86b6ef;
+  --viz-ord-2: #3987e5;
+  --viz-ord-3: #1c5cab;
+  --viz-ord-4: #0d366b;
+  --viz-grid: #eeeeee;
+  --viz-axis: #dddddd;
+  --hue-0: #4a6fae;
+  --hue-1: #9a6c38;
+  --hue-2: #43815a;
+  --hue-3: #8a5aa0;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-pop: 0 10px 30px rgba(0, 0, 0, 0.12), 0 0 0 1px var(--border);
+  --backdrop: rgba(0, 0, 0, 0.18);
+  --shadow-float: 0 40px 100px -40px rgba(0, 0, 0, 0.2), 0 0 0 1px var(--border);
+  --glow: rgba(0, 0, 0, 0.04);
+}
+
+/* Muted accents, applied only to accent surfaces. */
+:root[data-accent="blue"] { --accent: #8aa9dc; --accent-fg: #0f1520; --accent-soft: rgba(138, 169, 220, 0.14); --accent-line: rgba(138, 169, 220, 0.7); }
+:root[data-accent="violet"] { --accent: #a597dd; --accent-fg: #15121f; --accent-soft: rgba(165, 151, 221, 0.14); --accent-line: rgba(165, 151, 221, 0.7); }
+:root[data-accent="green"] { --accent: #8bb795; --accent-fg: #0f1711; --accent-soft: rgba(139, 183, 149, 0.14); --accent-line: rgba(139, 183, 149, 0.7); }
+:root[data-accent="amber"] { --accent: #d2ad73; --accent-fg: #1a140b; --accent-soft: rgba(210, 173, 115, 0.14); --accent-line: rgba(210, 173, 115, 0.7); }
+:root[data-theme="light"][data-accent="blue"] { --accent: #3f6fb5; --accent-fg: #fff; --accent-soft: rgba(63, 111, 181, 0.1); --accent-line: rgba(63, 111, 181, 0.6); }
+:root[data-theme="light"][data-accent="violet"] { --accent: #6a58b8; --accent-fg: #fff; --accent-soft: rgba(106, 88, 184, 0.1); --accent-line: rgba(106, 88, 184, 0.6); }
+:root[data-theme="light"][data-accent="green"] { --accent: #3f7d4f; --accent-fg: #fff; --accent-soft: rgba(63, 125, 79, 0.1); --accent-line: rgba(63, 125, 79, 0.6); }
+:root[data-theme="light"][data-accent="amber"] { --accent: #95682a; --accent-fg: #fff; --accent-soft: rgba(149, 104, 42, 0.1); --accent-line: rgba(149, 104, 42, 0.6); }
+
+/* Compact density: shorter rows and controls everywhere. */
+:root[data-density="compact"] {
+  --row-h: 30px;
+  --control-h: 27px;
+  --control-h-sm: 23px;
+  --nav-item-h: 27px;
+  --page-header-h: 42px;
+  --sidebar-w: 204px;
+}
+
+/* Reduced motion collapses every duration and entrance. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --t-menu: 0ms;
+    --t-panel: 0ms;
+    --t-layout: 0ms;
+    --enter-scale: 1;
+    --enter-shift: 0px;
+  }
+}

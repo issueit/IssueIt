@@ -1,0 +1,37 @@
+# Issueit: one app container plus PostgreSQL. Settings come from .env (see .env.example).
+name: issueit
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: issueit
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: issueit
+    volumes:
+      - db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U issueit -d issueit"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  app:
+    build: .
+    image: issueit:latest
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://issueit:${POSTGRES_PASSWORD}@db:5432/issueit
+    ports:
+      - "${ISSUEIT_BIND:-0.0.0.0}:${ISSUEIT_PORT:-8380}:8380"
+    volumes:
+      - data:/data
+
+volumes:
+  db:
+  data:
