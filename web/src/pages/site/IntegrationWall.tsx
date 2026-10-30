@@ -5,21 +5,29 @@ import type { ProviderCategory } from "../../lib/types";
 
 /**
  * Every live integration, read from the server so the wall never drifts from
- * what the dashboard offers. Each one is named rather than left as a bare
- * icon: only about half the catalogue has a brand mark, and a wall of
- * repeated fallback glyphs says less than a wall of names. A slow sweep of
- * light crosses it; choosing a kind of service lights just those. The sweep
- * only runs while the wall is on screen, and only ever changes opacity.
+ * what the dashboard offers. The cards float past in lanes running opposite
+ * ways, full width of the screen, and a lane stops when you point at it.
+ *
+ * Each card is named rather than left as a bare mark: only about half the
+ * catalogue has a brand mark, and a wall of repeated fallback glyphs says
+ * less than a wall of names. The catalogue arrives grouped by category, so
+ * the lanes are dealt round-robin to mix the kinds of service together.
+ *
+ * Only the four lanes animate, and only by transform, so this costs four
+ * composited layers rather than a repaint of 135 cards.
  */
+
+const LANES = 4;
+
 export function IntegrationWall() {
   const catalogue = useCatalogue();
   const [focus, setFocus] = useState<ProviderCategory | null>(null);
   const [live, setLive] = useState(false);
-  const grid = useRef<HTMLUListElement>(null);
+  const rows = useRef<HTMLDivElement>(null);
   const all = catalogue.data ?? [];
 
   useEffect(() => {
-    const el = grid.current;
+    const el = rows.current;
     if (!el) return;
     const watch = new IntersectionObserver(([entry]) => setLive(entry.isIntersecting));
     watch.observe(el);
@@ -32,6 +40,7 @@ export function IntegrationWall() {
     .filter(([, n]) => n > 0)
     .sort((a, b) => b[1] - a[1]);
   const shown = focus ? kinds.find(([c]) => c === focus)?.[1] : null;
+  const lanes = Array.from({ length: LANES }, (_, lane) => all.filter((_, i) => i % LANES === lane));
 
   return (
     <div className="wall" data-rv>
@@ -49,14 +58,25 @@ export function IntegrationWall() {
           ))}
         </div>
       </div>
-      <ul ref={grid} className="wall-grid" data-focus={focus ?? undefined} data-live={live || undefined}>
-        {all.map((p, i) => (
-          <li key={p.id} className="wall-chip" data-kind={p.category} title={p.summary} style={{ "--i": i } as CSSProperties} data-lit={focus === p.category || undefined}>
-            <BrandIcon provider={p.id} name={p.name} size={14} fallback="monogram" />
-            <span>{p.name}</span>
-          </li>
+      <div ref={rows} className="wall-rows" data-focus={focus ?? undefined} data-live={live || undefined}>
+        {lanes.map((lane, i) => (
+          <div key={i} className="wall-lane" data-reverse={i % 2 === 1 || undefined} style={{ "--dur": `${104 + i * 11}s` } as CSSProperties}>
+            <div className="wall-track">
+              {/* Two copies, so the lane can loop by sliding exactly half its width. */}
+              {[0, 1].map((copy) => (
+                <div key={copy} className="wall-set" aria-hidden={copy === 1 || undefined}>
+                  {lane.map((p) => (
+                    <div key={p.id} className="wall-card" data-lit={focus === p.category || undefined} title={p.summary}>
+                      <BrandIcon provider={p.id} name={p.name} size={26} fallback="monogram" />
+                      <span>{p.name}</span>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </div>
         ))}
-      </ul>
+      </div>
     </div>
   );
 }

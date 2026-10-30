@@ -3065,7 +3065,7 @@ br.br-sm {
     opacity: 1;
   }
   .marquee-track,
-  .wall-chip::before {
+  .wall-track {
     animation: none !important;
   }
   .about-numbers > div {
@@ -3130,88 +3130,93 @@ br.br-sm {
   color: var(--text);
   border-color: var(--border-strong);
 }
-.wall-grid {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 6px;
-  margin: 0;
-  padding: 16px;
-  border-radius: 16px;
-  background: var(--surface);
-  box-shadow: var(--shadow-float);
-  list-style: none;
+/* Full width of the screen: .site has overflow-x: clip, so breaking out
+   of the wrap here can't make the page scroll sideways. */
+.wall-rows {
+  display: grid;
+  gap: 12px;
+  width: 100vw;
+  margin-inline: calc(50% - 50vw);
+  padding-top: 4px;
 }
-.wall-chip {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  height: 29px;
-  padding: 0 11px 0 9px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 999px;
-  background: var(--bg);
+.wall-lane {
+  overflow: hidden;
+  mask-image: linear-gradient(90deg, transparent, black 7%, black 93%, transparent);
+  -webkit-mask-image: linear-gradient(90deg, transparent, black 7%, black 93%, transparent);
+}
+.wall-track {
+  display: flex;
+  width: max-content;
+  animation: marquee var(--dur) linear infinite;
+}
+.wall-lane[data-reverse] .wall-track {
+  animation-direction: reverse;
+}
+/* Still while off screen, and still while you're reading one. */
+.wall-rows:not([data-live]) .wall-track,
+.wall-lane:hover .wall-track {
+  animation-play-state: paused;
+}
+.wall-set {
+  display: flex;
+  gap: 12px;
+  padding-right: 12px;
+}
+.wall-card {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 11px;
+  width: 132px;
+  height: 132px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-xl);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
   color: var(--text-2);
   font-size: var(--fs-sm);
-  white-space: nowrap;
+  line-height: 1.35;
+  text-align: center;
   transition:
     opacity var(--t-layout) var(--ease),
     color var(--t-hover) var(--ease),
     border-color var(--t-hover) var(--ease),
     transform 300ms var(--ease-site);
 }
-/* The mark sits a shade back so the name leads. */
-.wall-chip > :first-child {
-  flex: none;
-  color: var(--text-4);
+.wall-card > :first-child {
+  color: var(--text-3);
   transition: color var(--t-hover) var(--ease);
 }
-/* The sweep is a ring that only changes opacity, so it runs on the
-   compositor rather than repainting 130 chips a frame. */
-.wall-chip::before {
-  content: "";
-  position: absolute;
-  inset: -1px;
-  border: 1px solid var(--border-strong);
-  border-radius: inherit;
-  background: var(--hover);
-  opacity: 0;
-  pointer-events: none;
+.wall-rows[data-focus] .wall-card {
+  opacity: 0.22;
 }
-.wall-grid[data-live] .wall-chip::before {
-  animation: tile-wave 9s var(--ease) calc(var(--i) * 34ms) infinite;
-}
-@keyframes tile-wave {
-  0%,
-  10%,
-  100% {
-    opacity: 0;
-  }
-  4% {
-    opacity: 1;
-  }
-}
-.wall-grid[data-focus] .wall-chip {
-  opacity: 0.26;
-}
-.wall-grid[data-focus] .wall-chip::before {
-  animation: none;
-}
-.wall-grid[data-focus] .wall-chip[data-lit],
-.wall-chip:hover {
-  z-index: 2;
+.wall-rows[data-focus] .wall-card[data-lit],
+.wall-card:hover {
   opacity: 1;
   color: var(--text);
   border-color: var(--accent-line);
-  transform: translateY(-1px);
+  transform: translateY(-3px);
 }
-.wall-grid[data-focus] .wall-chip[data-lit] > :first-child,
-.wall-chip:hover > :first-child {
+.wall-rows[data-focus] .wall-card[data-lit] > :first-child,
+.wall-card:hover > :first-child {
   color: var(--text);
 }
-.wall-chip:hover::before {
-  animation: none;
+@media (max-width: 640px) {
+  .wall-card {
+    width: 108px;
+    height: 108px;
+    gap: 9px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  /* The lanes hold still, so a still lane would hide everything past its
+     right edge. Let it be scrolled by hand instead. */
+  .wall-lane {
+    overflow-x: auto;
+    mask-image: none;
+    -webkit-mask-image: none;
+  }
 }
 
 /* The short version at the top of a legal page. */
