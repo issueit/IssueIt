@@ -76,8 +76,11 @@ export function NotificationSettings() {
             ]}
           />
         </SetRow>
-        <SetRow label="When Issueit pauses a destination" hint="Deliveries that keep failing pause the destination. Reports are still collected, but nothing leaves.">
-          <Switch checked={notify.pipeline} onChange={(v) => void save({ pipeline: v })} label="Tell me when a destination is paused" disabled={busy} />
+        <SetRow
+          label="When delivery goes wrong"
+          hint="A report Issueit gave up on delivering, and a destination paused because deliveries kept failing. Reports are still collected, but nothing leaves."
+        >
+          <Switch checked={notify.pipeline} onChange={(v) => void save({ pipeline: v })} label="Tell me when a report doesn't get through" disabled={busy} />
         </SetRow>
       </SetGroup>
 

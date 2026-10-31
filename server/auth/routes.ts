@@ -133,6 +133,7 @@ export const authRoutes = new Hono<AppEnv>()
     await db.delete(schema.sessions).where(eq(schema.sessions.userId, spent.userId));
     await revokeCodes("reset", spent.userId);
     const user = await db.query.users.findFirst({ where: eq(schema.users.id, spent.userId) });
+    if (user) await sayPasswordChanged(user.id, user.email, clientIp(c));
     // Two-factor still applies: a reset link to an inbox shouldn't be enough on its own.
     if (user?.totpEnabledAt) return c.json({ ok: true, twoFactor: true, ticket: await issueCode("second-factor", spent.userId) });
     await createSession(c, spent.userId);
@@ -144,10 +145,13 @@ export const authRoutes = new Hono<AppEnv>()
     throttle(`verify:${clientIp(c)}`, 20);
     const spent = await consumeCode("verify", input.token);
     if (!spent) throw badRequest("That confirmation link has expired or has already been used.");
+    const before = await db.query.users.findFirst({ where: eq(schema.users.id, spent.userId), columns: { name: true, emailVerifiedAt: true } });
     await db
       .update(schema.users)
       .set({ emailVerifiedAt: new Date(), ...(spent.email ? { email: spent.email } : {}), updatedAt: new Date() })
       .where(eq(schema.users.id, spent.userId));
+    // Only the first address someone proves is a new account; later ones are a change of address.
+    if (!before?.emailVerifiedAt) await welcomeAboard(spent.userId, spent.email ?? "", before?.name ?? "");
     return c.json({ ok: true });
   })
   .post("/logout", async (c) => {
@@ -165,6 +169,33 @@ async function sendVerification(userId: string, email: string) {
     userId,
     context: { url: `${config.appUrl}/verify?token=${encodeURIComponent(token)}`, email },
   });
+}
+
+/**
+ * The welcome, and then one note from a person. Both keyed to the account, so
+ * confirming a second address later doesn't start them again.
+ */
+async function welcomeAboard(userId: string, email: string, name: string) {
+  const user = email ? { email } : await db.query.users.findFirst({ where: eq(schema.users.id, userId), columns: { email: true } });
+  if (!user?.email) return;
+  await queueNotice({ to: user.email, kind: "welcome", userId, dedupeKey: `welcome:${userId}`, context: { name, url: config.appUrl } });
+  // Nobody wants two emails in the same minute, and a note that arrives
+  // before you've used the thing isn't worth reading.
+  if (config.smtp.personalFrom) {
+    await queueNotice({
+      to: user.email,
+      kind: "personal",
+      userId,
+      dedupeKey: `personal:${userId}`,
+      context: { name },
+      delaySeconds: Math.max(0, config.smtp.personalDelayHours) * 3600,
+    });
+  }
+}
+
+/** Both ways a password can change end up here: it's the email that matters, not which route. */
+async function sayPasswordChanged(userId: string, email: string, ip: string) {
+  await queueNotice({ to: email, kind: "password-changed", userId, context: { email, ip, at: new Date().toISOString(), url: `${config.appUrl}/forgot` } });
 }
 
 export const meRoutes = new Hono<AppEnv>()
@@ -275,6 +306,7 @@ export const meRoutes = new Hono<AppEnv>()
       .where(eq(schema.users.id, user.id));
     // Changing the password signs out every other session.
     await db.delete(schema.sessions).where(and(eq(schema.sessions.userId, user.id), ne(schema.sessions.id, c.get("sessionId"))));
+    await sayPasswordChanged(user.id, user.email, clientIp(c));
     return c.json({ ok: true });
   })
   .get("/sessions", async (c) => {

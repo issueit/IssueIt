@@ -10,7 +10,7 @@ import type { ConnectionHandle, DeliveryResult, Provider, ReportPayload } from "
 import type { AttemptLogEntry, WebhookEvent } from "../db/schema";
 import { backoffSeconds, effectivePolicy, shapeReport, shouldRetry, takeSlot, type EffectivePolicy } from "./policy";
 import { dashboardReportUrl, loadReportPayload } from "./payload";
-import { notifyPipelinePaused } from "../mail/notify";
+import { notifyDeliveryFailed, notifyPipelinePaused } from "../mail/notify";
 
 type Delivery = typeof schema.deliveries.$inferSelect;
 
@@ -168,6 +168,10 @@ export async function attempt(delivery: Delivery, testReport?: ReportPayload): P
       })
       .where(eq(schema.deliveries.id, delivery.id));
     if (known?.reconnect && destination?.connectionId) await markConnection(destination.connectionId, "error", message);
+    if (!retry && !delivery.isTest) {
+      // The plain reason: the email says how many attempts it took in its own words.
+      void notifyDeliveryFailed(delivery, destination, message).catch((e) => console.error("[worker] couldn't say a delivery failed", e));
+    }
     if (!retry && !delivery.isTest && destination && policy.autoPauseAfter) await maybePause(destination, policy.autoPauseAfter, message);
     await notify(delivery);
     return { ok: false, error: message };

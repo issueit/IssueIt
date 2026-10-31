@@ -54,6 +54,10 @@ SMTP_FROM=Issueit <no-reply@example.com>`} />
             Password resets, address confirmations, invitations, report alerts, digests and reporter mail all go through it. Without it, a forgotten password can only be fixed in the database. The
             server logs a warning on start and the settings pages say so, but it is still the most common thing to leave until later.
           </p>
+          <p>
+            One optional extra: <C>MAIL_PERSONAL_FROM</C> is the address a short note comes from a couple of days after someone confirms their account — the one email Issueit sends as a person
+            rather than as a product, with replies going back to that address. Leave it empty and the note is never sent.
+          </p>
         </Step>
         <Step title="Create a project and prove it works">
           <p>

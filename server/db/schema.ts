@@ -965,10 +965,16 @@ export const emails = pgTable(
 );
 
 export const noticeKinds = [
+  "welcome",
+  /** The one note from a person rather than from the product. */
+  "personal",
   "password-reset",
+  "password-changed",
   "verify-email",
   "invitation",
   "report",
+  /** A report Issueit gave up on delivering, after every retry. */
+  "delivery-failed",
   "pipeline",
   "digest",
   "limit-warning",

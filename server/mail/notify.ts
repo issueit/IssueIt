@@ -62,6 +62,45 @@ export async function notifyAboutReport(report: Report, project: Project) {
   );
 }
 
+/**
+ * A report Issueit gave up on delivering. The report is still here and can be
+ * sent again by hand; what's broken is the destination, and only the team can
+ * fix that — so this is the one delivery failure worth an email.
+ */
+export async function notifyDeliveryFailed(delivery: typeof schema.deliveries.$inferSelect, destination: typeof schema.destinations.$inferSelect | null, reason: string) {
+  if (!systemMailAvailable() || !delivery.reportId) return;
+  const report = await db.query.reports.findFirst({
+    where: eq(schema.reports.id, delivery.reportId),
+    columns: { id: true, number: true, title: true, priority: true, projectId: true },
+  });
+  if (!report) return;
+  const project = await db.query.projects.findFirst({ where: eq(schema.projects.id, report.projectId), columns: { name: true } });
+  const members = (await membersOf(delivery.orgId)).filter((m) => m.prefs.pipeline && !m.prefs.mutedProjects.includes(report.projectId));
+  if (!members.length) return;
+  await Promise.all(
+    members.map((m) =>
+      queueNotice({
+        to: m.email,
+        kind: "delivery-failed",
+        orgId: delivery.orgId,
+        userId: m.userId,
+        // Once per delivery, however many times the row is touched afterwards.
+        dedupeKey: `delivery-failed:${delivery.id}:${m.userId}`,
+        context: {
+          number: report.number,
+          title: report.title,
+          priority: report.priority,
+          projectName: project?.name ?? "a project",
+          destinationName: destination?.name ?? "the destination",
+          reason,
+          attempts: delivery.attempts,
+          url: `${config.appUrl}/projects/${report.projectId}/reports/${report.id}`,
+        },
+      }),
+    ),
+  );
+}
+
 /** A destination Issueit had to pause. Nobody notices a queue filling up on their own. */
 export async function notifyPipelinePaused(destination: typeof schema.destinations.$inferSelect, reason: string) {
   if (!systemMailAvailable()) return;

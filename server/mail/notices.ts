@@ -4,7 +4,8 @@ import { db, schema } from "../db";
 import type { NoticeKind } from "../db/schema";
 import { newId } from "../lib/ids";
 import { IntegrationError } from "../integrations/http";
-import { layout, sendSystemMail, systemMailAvailable, type Rendered } from "./system";
+import { personalAddress, renderNotice } from "./copy";
+import { sendSystemMail, systemMailAvailable } from "./system";
 
 /**
  * The outbox for Issueit's own email. Rows in Postgres, claimed with SKIP
@@ -28,6 +29,8 @@ export type NoticeInput = {
   userId?: string | null;
   /** Stops a second copy of the same digest or warning being queued. */
   dedupeKey?: string;
+  /** Holds the email back, for the ones that shouldn't land the same minute as everything else. */
+  delaySeconds?: number;
 };
 
 async function insertNotice(input: NoticeInput): Promise<NoticeRow | null> {
@@ -41,6 +44,7 @@ async function insertNotice(input: NoticeInput): Promise<NoticeRow | null> {
       kind: input.kind,
       context: input.context,
       dedupeKey: input.dedupeKey ?? null,
+      ...(input.delaySeconds ? { nextAttemptAt: new Date(Date.now() + input.delaySeconds * 1000) } : {}),
     })
     .onConflictDoNothing({ target: schema.notices.dedupeKey })
     .returning();
@@ -77,150 +81,21 @@ export async function sendNoticeNow(input: NoticeInput): Promise<boolean> {
   return after?.status !== "failed";
 }
 
-/* ---------------------------------------------------------------- rendering */
-
-const dash = (path = "") => `${config.appUrl}${path}`;
-const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
-
-/** Everything a notice can say. Context is whatever the queueing side put in. */
-export function renderNotice(kind: NoticeKind, ctx: Record<string, any>): Rendered {
-  switch (kind) {
-    case "password-reset":
-      return layout({
-        subject: "Reset your Issueit password",
-        heading: "Reset your password",
-        blocks: [
-          { p: `Someone asked to reset the password for ${ctx.email}. If that was you, choose a new one.` },
-          { button: { label: "Choose a new password", url: ctx.url } },
-          { note: `The link works once and expires in ${ctx.minutes ?? 60} minutes. If it wasn't you, nothing has changed and you can ignore this.` },
-        ],
-      });
-
-    case "verify-email":
-      return layout({
-        subject: "Confirm your email address",
-        heading: "Confirm your email address",
-        blocks: [
-          { p: `Confirming ${ctx.email} lets Issueit send you password resets and the alerts you ask for.` },
-          { button: { label: "Confirm this address", url: ctx.url } },
-          { note: "The link works once and expires in 24 hours." },
-        ],
-      });
-
-    case "invitation":
-      return layout({
-        subject: `${ctx.invitedBy} invited you to ${ctx.orgName} on Issueit`,
-        heading: `You've been invited to ${ctx.orgName}`,
-        blocks: [
-          { p: `${ctx.invitedBy} has invited you to join ${ctx.orgName} on Issueit as ${ctx.role === "owner" ? "an owner" : "a member"}. Issueit collects bug reports from their product and delivers them to the tools the team already uses.` },
-          { button: { label: "Accept the invitation", url: ctx.url } },
-          { note: "The invitation expires in seven days. If you weren't expecting it, you can ignore it." },
-        ],
-      });
-
-    case "report":
-      return layout({
-        subject: `[${ctx.projectName}] ${String(ctx.title).slice(0, 90)}`,
-        heading: ctx.title,
-        blocks: [
-          { p: `A ${ctx.priority} report arrived in ${ctx.projectName}.` },
-          {
-            facts: [
-              ["Report", `#${ctx.number}`],
-              ["Priority", String(ctx.priority)],
-              ...(ctx.page ? ([["Page", String(ctx.page)]] as Array<[string, string]>) : []),
-              ...(ctx.reporter ? ([["Reported by", String(ctx.reporter)]] as Array<[string, string]>) : []),
-            ],
-          },
-          { button: { label: "Open the report", url: ctx.url } },
-          { note: "You're getting this because of your notification settings for this organisation." },
-        ],
-        footer: `Change what you're told about at ${dash("/settings/notifications")}`,
-      });
-
-    case "pipeline":
-      return layout({
-        subject: `Issueit paused ${ctx.destinationName}`,
-        heading: `${ctx.destinationName} has been paused`,
-        blocks: [
-          { p: `Issueit stopped sending to ${ctx.destinationName} in ${ctx.projectName} because deliveries kept failing. Reports are still being collected and will be delivered once it's working again.` },
-          { facts: [["Reason", String(ctx.reason ?? "Repeated failures")]] },
-          { button: { label: "Look at the destination", url: ctx.url } },
-        ],
-        footer: `Change what you're told about at ${dash("/settings/notifications")}`,
-      });
-
-    case "digest": {
-      const period = ctx.period === "week" ? "week" : "day";
-      const counts = ctx.counts ?? {};
-      return layout({
-        subject: `${ctx.orgName}: ${plural(counts.created ?? 0, "new report")} ${period === "week" ? "this week" : "yesterday"}`,
-        heading: period === "week" ? "Your week on Issueit" : "Yesterday on Issueit",
-        blocks: [
-          { p: `${plural(counts.created ?? 0, "new report")} arrived, ${plural(counts.resolved ?? 0, "report")} ${(counts.resolved ?? 0) === 1 ? "was" : "were"} resolved${counts.failed ? `, and ${plural(counts.failed, "delivery")} failed` : ""}.` },
-          ...(ctx.items?.length ? [{ list: ctx.items } as const] : [{ p: "Nothing needs you right now." } as const]),
-          ...(counts.refused ? [{ note: `${plural(counts.refused, "report")} ${counts.refused === 1 ? "was" : "were"} turned away because the plan's monthly allowance is used up.` } as const] : []),
-          { button: { label: "Open Issueit", url: ctx.url } },
-        ],
-        footer: `Change or stop the digest at ${dash("/settings/notifications")}`,
-      });
-    }
-
-    case "limit-warning":
-      return layout({
-        subject: `You've used ${ctx.percent}% of this month's reports`,
-        heading: `${ctx.orgName} has used ${ctx.percent}% of this month's reports`,
-        blocks: [
-          { p: `${ctx.used} of ${ctx.limit} reports this month. Issueit keeps accepting a little past the allowance, but after that new reports are turned away.` },
-          { button: { label: "Look at the plans", url: ctx.url } },
-        ],
-      });
-
-    case "limit-reached":
-      return layout({
-        subject: "Issueit has started turning reports away",
-        heading: `${ctx.orgName} has used up this month's reports`,
-        blocks: [
-          { p: `${ctx.used} of ${ctx.limit} reports have been used, and ${ctx.refused ? plural(ctx.refused, "report") : "new reports"} ${ctx.refused === 1 ? "has" : "have"} been turned away. Your users are reporting bugs you aren't seeing.` },
-          { button: { label: "Change plan", url: ctx.url } },
-          { note: "The allowance resets at the start of next month." },
-        ],
-      });
-
-    case "trial-ending":
-      return layout({
-        subject: ctx.days > 0 ? `Your Issueit trial ends in ${plural(ctx.days, "day")}` : "Your Issueit trial has ended",
-        heading: ctx.days > 0 ? `Your trial ends in ${plural(ctx.days, "day")}` : "Your trial has ended",
-        blocks: [
-          {
-            p:
-              ctx.days > 0
-                ? `${ctx.orgName} is on the ${ctx.plan} plan until then. Choosing a plan now keeps everything as it is; doing nothing moves you to Free, which keeps collecting reports with a smaller allowance.`
-                : `${ctx.orgName} has moved to the Free plan. Your projects, destinations and reports are all still here, with a smaller monthly allowance.`,
-          },
-          { button: { label: "Look at the plans", url: ctx.url } },
-        ],
-      });
-
-    case "payment-problem":
-      return layout({
-        subject: "Issueit couldn't take your payment",
-        heading: "Your last payment didn't go through",
-        blocks: [
-          { p: `${ctx.orgName}'s subscription couldn't be charged. Nothing has changed yet, and Issueit is still collecting your reports. Updating the card settles it.` },
-          ...(ctx.problem ? [{ facts: [["What Stripe said", String(ctx.problem)]] } as const] : []),
-          { button: { label: "Update payment details", url: ctx.url } },
-        ],
-      });
-  }
-}
-
 /* ------------------------------------------------------------------ sending */
+
+/**
+ * The note from a person comes from that person's address, with replies
+ * going back to them. Everything else comes from the product.
+ */
+function senderFor(kind: NoticeRow["kind"]) {
+  if (kind !== "personal" || !config.smtp.personalFrom) return {};
+  return { from: config.smtp.personalFrom, replyTo: personalAddress() };
+}
 
 async function send(row: NoticeRow) {
   try {
     const rendered = renderNotice(row.kind, row.context);
-    const { id } = await sendSystemMail({ to: row.to, ...rendered });
+    const { id } = await sendSystemMail({ to: row.to, ...rendered, ...senderFor(row.kind) });
     await finish(row, { status: "sent", messageId: id ?? null, sentAt: new Date(), lastError: null });
   } catch (err) {
     const known = err instanceof IntegrationError ? err : null;

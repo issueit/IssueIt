@@ -88,6 +88,14 @@ export const config = {
   smtp: {
     url: optional("SMTP_URL"),
     from: str("SMTP_FROM", "Issueit <no-reply@issueit.app>"),
+    /**
+     * The one email that comes from a person: the note a few days after
+     * someone signs up. Needs its own address, and its own verified sending
+     * domain if that address isn't on SMTP_FROM's. Empty turns the note off.
+     */
+    personalFrom: optional("MAIL_PERSONAL_FROM") ?? "",
+    /** How long after confirming an address that note waits. 0 sends it at once. */
+    personalDelayHours: int("MAIL_PERSONAL_DELAY_HOURS", 48),
   },
 
   /** Payments. Without a secret key the billing endpoints say so rather than half-working. */
