@@ -2,6 +2,8 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { config } from "../config";
 import { scopeFor } from "../auth/tokens";
+import { featureForPath } from "../billing/entitlements";
+import { cheapestWith } from "../billing/plans";
 import { scopes } from "../db/schema";
 
 /**
@@ -124,6 +126,9 @@ const docs: Record<string, Doc> = {
   },
 
   "GET /reports": { tag: "Reports", summary: "Search reports", description: "Newest first. Duplicates are folded into the report they joined.", query: reportFilters },
+  "POST /reports/:id/notes": { tag: "Reports", summary: "Leave an internal note", description: "Never delivered anywhere and never shown to the reporter.", body: z.object({ body: str() }) },
+  "PATCH /reports/:id/notes/:noteId": { tag: "Reports", summary: "Edit your own note", body: z.object({ body: str() }) },
+  "DELETE /reports/:id/notes/:noteId": { tag: "Reports", summary: "Delete a note" },
   "GET /reports/:id": { tag: "Reports", summary: "One report with its diagnostics, attachments and deliveries" },
   "PATCH /reports/:id": { tag: "Reports", summary: "Change a report's status or priority", body: z.object({ status: z.enum(["new", "investigating", "resolved", "closed"]).optional(), priority: z.enum(["low", "medium", "high", "critical"]).optional() }) },
   "POST /reports/:id/group": { tag: "Reports", summary: "Mark a report a duplicate of another", body: z.object({ into: z.number().int() }) },
@@ -161,6 +166,24 @@ const docs: Record<string, Doc> = {
     description: 'Queue depth, the age of the oldest waiting delivery, paused destinations and the day\'s failure rate, with a status of "ok", "degraded" or "behind" to alert on.',
   },
   "GET /usage": { tag: "Insight", summary: "Reports, storage and deliveries against the plan's limits" },
+  "GET /billing": { tag: "Billing", summary: "The plan, its limits, and what else there is", description: "On a self-hosted install `billable` is false and the limits are the operator's own." },
+  "POST /billing/checkout": { tag: "Billing", summary: "Start a Stripe Checkout session", body: z.object({ plan: z.enum(["solo", "team", "business"]), interval: z.enum(["month", "year"]).optional() }) },
+  "POST /billing/portal": { tag: "Billing", summary: "Open the Stripe customer portal" },
+  "GET /billing/invoices": { tag: "Billing", summary: "Past invoices" },
+  "GET /notifications": { tag: "Account", summary: "What Issueit emails you about this organisation" },
+  "PATCH /notifications": {
+    tag: "Account",
+    summary: "Change what you're emailed about",
+    body: z.object({
+      reports: z.enum(["off", "critical", "high", "all"]).optional(),
+      pipeline: z.boolean().optional(),
+      digest: z.enum(["off", "daily", "weekly"]).optional(),
+      mutedProjects: z.array(str()).optional(),
+    }),
+  },
+  "POST /notifications/test": { tag: "Account", summary: "Send yourself a digest now" },
+  "GET /onboarding": { tag: "Organisation", summary: "How far setting up has got", description: "Worked out from what exists, so it is never stale." },
+  "POST /onboarding/test-report": { tag: "Organisation", summary: "File a sample report to prove the pipeline works", body: z.object({ project: str() }) },
   "GET /events": { tag: "Insight", summary: "Live events as server-sent events", description: "A stream that emits whenever a report arrives or a delivery changes, so a client needn't poll." },
 };
 
@@ -185,6 +208,7 @@ export function buildSpec(app: Hono) {
     const doc = docs[key];
     if (!doc) continue;
     const scope = scopeFor(method, path);
+    const feature = featureForPath(path);
     const url = `/api/orgs/{org}${path === "/" ? "" : path}`.replace(/:(\w+)/g, "{$1}");
     const parameters = [
       { name: "org", in: "path", required: true, schema: { type: "string" }, description: 'The organisation id, or "current" for the one the token belongs to.' },
@@ -204,10 +228,15 @@ export function buildSpec(app: Hono) {
         "200": { description: "Done." },
         "401": { description: "No credentials, or they are no longer valid.", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         "403": { description: "Not allowed, or the token is missing a scope.", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        ...(feature
+          ? { "402": { description: `Included from the ${cheapestWith(feature)?.name ?? "paid"} plan upwards.`, content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } } }
+          : {}),
       },
       security: scope === "session" ? [{ session: [] }] : [{ token: scope ? [scope] : [] }, { session: [] }],
       "x-issueit-scope": scope === "session" ? null : scope,
       "x-issueit-session-only": scope === "session" || undefined,
+      /** The plan feature this endpoint belongs to, read from the same table that enforces it. */
+      "x-issueit-plan-feature": feature ?? undefined,
     };
   }
 

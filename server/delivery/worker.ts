@@ -1,4 +1,4 @@
-import { eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { db, schema } from "../db";
 import { decryptJson } from "../lib/crypto";
 import { publish, subscribe } from "../lib/events";
@@ -10,6 +10,7 @@ import type { ConnectionHandle, DeliveryResult, Provider, ReportPayload } from "
 import type { AttemptLogEntry, WebhookEvent } from "../db/schema";
 import { backoffSeconds, effectivePolicy, shapeReport, shouldRetry, takeSlot, type EffectivePolicy } from "./policy";
 import { dashboardReportUrl, loadReportPayload } from "./payload";
+import { notifyPipelinePaused } from "../mail/notify";
 
 type Delivery = typeof schema.deliveries.$inferSelect;
 
@@ -191,10 +192,14 @@ async function maybePause(destination: Destination, limit: number, lastError: st
     where destination_id = ${destination.id} and not is_test and status in ('delivered', 'failed')
     order by updated_at desc limit ${limit}`);
   if (recent.length < limit || recent.some((r) => r.status !== "failed")) return;
-  await db
+  const reason = `Paused automatically after ${limit} failed ${limit === 1 ? "delivery" : "deliveries"} in a row. Last error: ${lastError}`;
+  const [paused] = await db
     .update(schema.destinations)
-    .set({ enabled: false, pausedReason: `Paused automatically after ${limit} failed ${limit === 1 ? "delivery" : "deliveries"} in a row. Last error: ${lastError}`, updatedAt: new Date() })
-    .where(eq(schema.destinations.id, destination.id));
+    .set({ enabled: false, pausedReason: reason, updatedAt: new Date() })
+    .where(and(eq(schema.destinations.id, destination.id), eq(schema.destinations.enabled, true)))
+    .returning();
+  // Only on the transition, so a destination already paused doesn't email anyone again.
+  if (paused) void notifyPipelinePaused(paused, reason).catch((err) => console.error("[worker] couldn't say a destination was paused", err));
 }
 
 async function perform(delivery: Delivery, destination: Destination | null, policy: EffectivePolicy, testReport?: ReportPayload): Promise<DeliveryResult> {

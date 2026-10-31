@@ -4,6 +4,8 @@ import { sql } from "drizzle-orm";
 import { config } from "../config";
 import { db } from "../db";
 import { subscribe, type AppEvent } from "../lib/events";
+import { hosted, limitsFor, planIdOf, refusedThisMonth, trialDaysLeft } from "../billing/entitlements";
+import { plans } from "../billing/plans";
 import type { AppEnv } from "../http";
 
 export const usageRoutes = new Hono<AppEnv>().get("/", async (c) => {
@@ -31,16 +33,26 @@ export const usageRoutes = new Hono<AppEnv>().get("/", async (c) => {
     select d.provider, count(*)::int as n from deliveries x join destinations d on d.id = x.destination_id
     where x.org_id = ${orgId} and not x.is_test and x.status = 'delivered' and x.created_at >= date_trunc('month', now())
     group by d.provider order by n desc`);
+  const org = c.get("org");
+  const plan = limitsFor(org);
+  const refused = await refusedThisMonth(orgId);
   return c.json({
     reports: { month: reports.month, lastMonth: reports.last_month, total: reports.total, daily },
     storage: { bytes: Number(storage.bytes), files: storage.files, monthFiles: storage.month_files },
     deliveries: Object.fromEntries(deliveries.map((d) => [d.status, d.n])),
     deliveriesByProvider: byProvider,
+    /** Reports Issueit had to turn away this month, which is what a limit really costs. */
+    refused,
+    plan: { id: planIdOf(org), name: plans[planIdOf(org)].name, trialDaysLeft: trialDaysLeft(org), billable: hosted },
     limits: {
-      reportsPerMonth: config.limits.reportsPerMonth || null,
+      reportsPerMonth: plan.reportsPerMonth || null,
       storageBytes: config.limits.storageBytes || null,
-      attachmentBytes: config.limits.attachmentBytes,
-      attachmentsPerReport: config.limits.attachmentsPerReport,
+      attachmentBytes: Math.min(plan.attachmentBytes, config.limits.attachmentBytes),
+      attachmentsPerReport: Math.min(plan.attachmentsPerReport, config.limits.attachmentsPerReport),
+      retentionDays: plan.retentionDays || null,
+      projects: plan.projects || null,
+      destinationsPerProject: plan.destinationsPerProject || null,
+      members: plan.members || null,
     },
   });
 });

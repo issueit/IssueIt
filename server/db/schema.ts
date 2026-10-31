@@ -24,9 +24,40 @@ export const users = pgTable("users", {
   email: text("email").notNull().unique(),
   name: text("name").notNull(),
   passwordHash: text("password_hash").notNull(),
+  /** When this address was proven. Null means unverified: a nag, not a lock. */
+  emailVerifiedAt: ts("email_verified_at"),
+  /** Encrypted base32 TOTP secret. Present only once two-factor is set up. */
+  totpSecret: text("totp_secret"),
+  /** Set when the codes have been checked once, so a half-finished setup can't lock anyone out. */
+  totpEnabledAt: ts("totp_enabled_at"),
+  /** sha256 of each unused recovery code. */
+  recoveryCodes: text("recovery_codes").array().notNull().default(sql`'{}'::text[]`),
   createdAt: created(),
   updatedAt: updated(),
 });
+
+/**
+ * One-time links and codes: resetting a password, proving an address, and the
+ * short window after a password check when two-factor is still to come.
+ * Single use, short lived, and the token itself is never stored.
+ */
+export const authCodes = pgTable(
+  "auth_codes",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<"reset" | "verify" | "second-factor">().notNull(),
+    tokenHash: text("token_hash").notNull().unique(),
+    /** The address being proven, for a verification of a new one. */
+    email: text("email"),
+    usedAt: ts("used_at"),
+    expiresAt: ts("expires_at").notNull(),
+    createdAt: created(),
+  },
+  (t) => [index("auth_codes_user_idx").on(t.userId, t.kind)],
+)
 
 export const sessions = pgTable(
   "sessions",
@@ -50,17 +81,91 @@ export type OrgSettings = {
   delivery?: DeliveryPolicy;
   /** Where a report's country comes from: proxy headers then time zone, time zone only, or not at all. */
   location?: "auto" | "timezone" | "off";
+  /** Delete reports entirely after this many days. 0 or missing keeps them. */
+  retentionDays?: number;
+};
+
+/* ------------------------------------------------------------------ plans */
+
+export const planIds = ["free", "solo", "team", "business"] as const;
+export type PlanId = (typeof planIds)[number];
+
+/**
+ * What a plan allows. 0 means unlimited, everywhere, so a bespoke deal can
+ * lift one number without listing the rest. A self-hosted install ignores
+ * all of this and reads the operator's environment instead.
+ */
+export type PlanLimits = {
+  reportsPerMonth: number;
+  projects: number;
+  destinationsPerProject: number;
+  members: number;
+  /** How long attachments and captured diagnostics are kept. */
+  retentionDays: number;
+  attachmentBytes: number;
+  attachmentsPerReport: number;
+  reportsPerKeyPerMinute: number;
+  tokenRequestsPerMinute: number;
+};
+
+/** Things a plan either has or hasn't. */
+export const planFeatures = ["tokens", "mcp", "sourcemaps", "config", "rules", "audit", "digest", "whitelabel"] as const;
+export type PlanFeature = (typeof planFeatures)[number];
+
+/** What Stripe knows about this organisation. Written by the webhook, read by the dashboard. */
+export type OrgBilling = {
+  customerId?: string;
+  subscriptionId?: string;
+  status?: "trialing" | "active" | "past_due" | "unpaid" | "canceled" | "incomplete" | "incomplete_expired" | "paused";
+  priceId?: string;
+  interval?: "month" | "year";
+  /** When the current period ends, so the dashboard can say "until 3 December". */
+  periodEnd?: string;
+  /** Set when the subscription is ending at the period end rather than renewing. */
+  cancelAt?: string;
+  /** Last thing Stripe told us that someone might need to act on. */
+  problem?: string;
 };
 
 export const organisations = pgTable("organisations", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   settings: jsonb("settings").$type<OrgSettings>().notNull().default({}),
+  /** The plan in force now, trial included. A trial is a plan with an end date. */
+  plan: text("plan").$type<PlanId>().notNull().default("free"),
+  /** Numbers agreed for this organisation alone, overriding the plan's. */
+  planLimits: jsonb("plan_limits").$type<Partial<PlanLimits>>().notNull().default({}),
+  /** When a trial of `plan` runs out. Null once there is a subscription. */
+  trialEndsAt: ts("trial_ends_at"),
+  billing: jsonb("billing").$type<OrgBilling>().notNull().default({}),
   createdAt: created(),
   updatedAt: updated(),
 });
 
 export type Role = "owner" | "member";
+
+/**
+ * When Issueit emails this person about this organisation. Kept inside their
+ * membership preferences, because it's a choice per person per organisation:
+ * you might want every report from your own project and none from a colleague's.
+ */
+export type NotifyPrefs = {
+  /** Which arriving reports are worth an email. */
+  reports: "off" | "critical" | "high" | "all";
+  /** A destination Issueit had to pause, or deliveries failing. */
+  pipeline: boolean;
+  /** A summary of the day or the week. */
+  digest: "off" | "daily" | "weekly";
+  /** Projects to stay quiet about. */
+  mutedProjects: string[];
+};
+
+export const defaultNotifyPrefs: NotifyPrefs = { reports: "critical", pipeline: true, digest: "off", mutedProjects: [] };
+
+export const notifyWithDefaults = (prefs: Record<string, unknown> | null | undefined): NotifyPrefs => ({
+  ...defaultNotifyPrefs,
+  ...((prefs?.notify as Partial<NotifyPrefs> | undefined) ?? {}),
+});
 
 export const memberships = pgTable(
   "memberships",
@@ -519,6 +624,8 @@ export const reports = pgTable(
     release: text("release"),
     /** The caller's own key for this report, so a retried submission doesn't file it twice. */
     idempotencyKey: text("idempotency_key"),
+    /** Who on the team is dealing with it. Issueit isn't a tracker, but someone has to own it. */
+    assigneeId: text("assignee_id").references(() => users.id, { onDelete: "set null" }),
     /** Keyed hash of the submitter's IP, for abuse throttling only. */
     ipHash: text("ip_hash"),
     viaKeyId: text("via_key_id"),
@@ -532,6 +639,7 @@ export const reports = pgTable(
     index("reports_fingerprint_idx").on(t.projectId, t.fingerprint),
     index("reports_group_idx").on(t.groupId),
     index("reports_ip_idx").on(t.projectId, t.ipHash, t.createdAt),
+    index("reports_assignee_idx").on(t.assigneeId),
     uniqueIndex("reports_idempotency_idx").on(t.projectId, t.idempotencyKey),
   ],
 );
@@ -565,6 +673,30 @@ export const attachments = pgTable(
  * release carries the source maps that turn a minified stack into a file and
  * a line someone can open.
  */
+/**
+ * A note the team leaves on a report: what was tried, what it turned out to
+ * be. Internal, never sent anywhere, never shown to the reporter.
+ */
+export const reportNotes = pgTable(
+  "report_notes",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id")
+      .notNull()
+      .references(() => organisations.id, { onDelete: "cascade" }),
+    reportId: text("report_id")
+      .notNull()
+      .references(() => reports.id, { onDelete: "cascade" }),
+    /** Kept as text as well, so a note still reads after its author leaves. */
+    userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+    author: text("author").notNull(),
+    body: text("body").notNull(),
+    createdAt: created(),
+    updatedAt: updated(),
+  },
+  (t) => [index("report_notes_report_idx").on(t.reportId, t.createdAt)],
+);
+
 export const releases = pgTable(
   "releases",
   {
@@ -830,6 +962,74 @@ export const emails = pgTable(
     index("emails_to_idx").on(t.orgId, t.to, t.createdAt),
     index("emails_project_idx").on(t.projectId, t.createdAt),
   ],
+);
+
+export const noticeKinds = [
+  "password-reset",
+  "verify-email",
+  "invitation",
+  "report",
+  "pipeline",
+  "digest",
+  "limit-warning",
+  "limit-reached",
+  "trial-ending",
+  "payment-problem",
+] as const;
+export type NoticeKind = (typeof noticeKinds)[number];
+
+/**
+ * Email Issueit sends on its own behalf: a reset link, an invitation, a new
+ * report someone asked to hear about, the daily digest. Separate from the
+ * `emails` outbox, which is reporter-facing and sent as the customer's brand
+ * through their own mail service. These always go through the install's own
+ * SMTP server, because they're from Issueit, not from a project.
+ *
+ * The row holds the context rather than the rendered message, so a template
+ * fix reaches everything still queued.
+ */
+export const notices = pgTable(
+  "notices",
+  {
+    id: text("id").primaryKey(),
+    /** Null for anything that happens before an organisation exists, like a reset. */
+    orgId: text("org_id").references(() => organisations.id, { onDelete: "cascade" }),
+    userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
+    to: text("to").notNull(),
+    kind: text("kind").$type<NoticeKind>().notNull(),
+    context: jsonb("context").$type<Record<string, unknown>>().notNull().default({}),
+    /** Stops a second copy of the same daily digest or limit warning. */
+    dedupeKey: text("dedupe_key").unique(),
+    status: text("status").$type<EmailStatus>().notNull().default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    nextAttemptAt: ts("next_attempt_at").notNull().defaultNow(),
+    lockedUntil: ts("locked_until"),
+    lastError: text("last_error"),
+    messageId: text("message_id"),
+    sentAt: ts("sent_at"),
+    createdAt: created(),
+  },
+  (t) => [index("notices_due_idx").on(t.status, t.nextAttemptAt), index("notices_user_idx").on(t.userId, t.createdAt)],
+);
+
+/**
+ * Reports Issueit turned away, by month and by reason. The count is the
+ * honest version of "you have outgrown this plan": it says how much was
+ * actually lost, not how close to a line you are.
+ */
+export const usageRefusals = pgTable(
+  "usage_refusals",
+  {
+    orgId: text("org_id")
+      .notNull()
+      .references(() => organisations.id, { onDelete: "cascade" }),
+    /** The month it happened in, as YYYY-MM. */
+    month: text("month").notNull(),
+    reason: text("reason").$type<"plan_limit" | "storage_limit">().notNull(),
+    count: integer("count").notNull().default(0),
+    lastAt: ts("last_at").notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.orgId, t.month, t.reason] })],
 );
 
 export const oauthStates = pgTable("oauth_states", {

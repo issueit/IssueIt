@@ -102,13 +102,16 @@ const effectiveScopes = (role: Role, granted: Scope[]): Scope[] => (role === "ow
 /**
  * Resolves the organisation in the path. `current` means "the one this token
  * belongs to", so a client never has to learn an id first.
+ *
+ * The organisation row itself is loaded as well, because what it is allowed
+ * to do depends on its plan and nearly every route needs to know.
  */
 export const resolveOrg: MiddlewareHandler<AppEnv> = async (c, next) => {
   const param = c.req.param("org");
   const token = c.get("token");
 
   if (param === "current") {
-    if (token) return next(); // requireAuth already set the org
+    if (token) return withOrg(c, next); // requireAuth already set the org
     const rows = await db
       .select({ orgId: schema.memberships.orgId, role: schema.memberships.role })
       .from(schema.memberships)
@@ -118,13 +121,13 @@ export const resolveOrg: MiddlewareHandler<AppEnv> = async (c, next) => {
     if (rows.length > 1) throw forbidden("You belong to more than one organisation, so name the one you mean instead of 'current'.");
     c.set("orgId", rows[0].orgId);
     c.set("role", rows[0].role);
-    return next();
+    return withOrg(c, next);
   }
 
   if (!param) throw forbidden();
   if (token) {
     if (param !== c.get("orgId")) throw forbidden("This token belongs to a different organisation.");
-    return next();
+    return withOrg(c, next);
   }
 
   const [m] = await db
@@ -135,8 +138,15 @@ export const resolveOrg: MiddlewareHandler<AppEnv> = async (c, next) => {
   if (!m) throw forbidden("You aren't a member of this organisation.");
   c.set("orgId", param);
   c.set("role", m.role);
-  await next();
+  await withOrg(c, next);
 };
+
+async function withOrg(c: Context<AppEnv>, next: () => Promise<void>) {
+  const org = await db.query.organisations.findFirst({ where: eq(schema.organisations.id, c.get("orgId")) });
+  if (!org) throw forbidden("That organisation no longer exists.");
+  c.set("org", org);
+  await next();
+}
 
 /* ------------------------------------------------------------------- scopes */
 
@@ -144,8 +154,11 @@ type Rule = {
   match: RegExp;
   /** Scope needed for GET and HEAD. Null means authentication is enough. */
   read?: Scope | null;
-  /** Scope needed for anything that changes state. Undefined means refuse. */
-  write?: Scope | null;
+  /**
+   * Scope needed for anything that changes state. Undefined means refuse,
+   * "session" means only a person in the dashboard may do it.
+   */
+  write?: Scope | null | "session";
   /** Endpoints no token may reach, only a signed-in person in the dashboard. */
   session?: true;
 };
@@ -161,6 +174,13 @@ const rules: Rule[] = [
   // intent, so it stays a thing you do in the dashboard.
   { match: /^\/tokens(\/|$)/, session: true },
   { match: /^\/audit(\/|$)/, read: "org:read" },
+  // What the organisation is paying for is readable; changing it means a card,
+  // so it happens in the dashboard.
+  { match: /^\/billing(\/|$)/, read: "org:read", write: "session" },
+  // Somebody's own email preferences aren't a token's business.
+  { match: /^\/notifications(\/|$)/, session: true },
+  // Where a new install has got to, and the test report that proves it works.
+  { match: /^\/onboarding(\/|$)/, read: "org:read", write: "reports:write" },
   { match: /^\/projects\/[^/]+\/keys(\/|$)/, read: "projects:read", write: "keys:write" },
   { match: /^\/projects\/[^/]+\/destinations(\/|$)/, read: "destinations:read", write: "destinations:write" },
   // Releases and their source maps belong to the build, so they follow the project.

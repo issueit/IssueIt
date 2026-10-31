@@ -3,9 +3,11 @@ import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { config } from "../config";
 import { db, schema } from "../db";
-import { defaultWidgetConfig, emailsWithDefaults, priorities, widgetWithDefaults } from "../db/schema";
+import { defaultWidgetConfig, emailsWithDefaults, priorities, widgetWithDefaults, type ProjectRules } from "../db/schema";
 import { decrypt, encrypt, randomToken, sha256 } from "../lib/crypto";
 import { AppError, badRequest, notFound } from "../lib/errors";
+import { assertRoom, has, upgradeRequired } from "../billing/entitlements";
+import { checkRules } from "./config";
 import { newId } from "../lib/ids";
 import { storage } from "../lib/storage";
 import { body, type AppEnv } from "../http";
@@ -148,6 +150,25 @@ const projectInput = z.object({
   description: z.string().trim().max(280).nullable().optional(),
 });
 
+/** Grouping and redaction rules. Shapes only; the patterns are checked below. */
+const rulesSchema = z.object({
+  grouping: z
+    .object({
+      titlePatterns: z.array(z.string().max(400)).max(50).optional(),
+      ignorePage: z.boolean().optional(),
+      pathDepth: z.number().int().min(0).max(10).optional(),
+    })
+    .optional(),
+  redaction: z
+    .object({
+      patterns: z
+        .array(z.object({ pattern: z.string().max(400), replacement: z.string().max(80).optional(), label: z.string().max(80).optional() }))
+        .max(50)
+        .optional(),
+    })
+    .optional(),
+});
+
 /** Endpoints and snippets the dashboard shows for a project. */
 export function projectLinks(id: string) {
   return {
@@ -208,6 +229,15 @@ export const projectRoutes = new Hono<AppEnv>()
   })
   .post("/", async (c) => {
     const input = await body(c, projectInput);
+    await assertRoom(
+      c.get("org"),
+      "projects",
+      db
+        .select({ n: sql<number>`count(*)::int` })
+        .from(schema.projects)
+        .where(eq(schema.projects.orgId, c.get("orgId")))
+        .then((rows) => rows[0]?.n ?? 0),
+    );
     const id = newId("prj", 12);
     const [project] = await db
       .insert(schema.projects)
@@ -236,8 +266,21 @@ export const projectRoutes = new Hono<AppEnv>()
         replaceWidget: z.boolean().optional(),
         emails: emailSettingsSchema.optional(),
         groupDuplicates: z.boolean().optional(),
+        rules: rulesSchema.optional(),
       }),
     );
+    // Taking Issueit's name off the widget is what the paid plans sell; the
+    // rest of the widget is everyone's.
+    if (input.widget?.poweredBy === false && !has(c.get("org"), "whitelabel")) throw upgradeRequired("whitelabel");
+    // Rules are previewed through a gated route, but they can also be sent
+    // straight here, so the same check belongs on this path.
+    if (input.rules) {
+      if (!has(c.get("org"), "rules")) throw upgradeRequired("rules");
+      // A rule that doesn't compile would quietly stop grouping working, so
+      // it's refused here rather than swallowed at intake.
+      const problems = checkRules(input.rules as ProjectRules);
+      if (problems.length) throw badRequest(problems[0], { problems });
+    }
     let emails = project.emails;
     if (input.emails) {
       emails = { ...emailsWithDefaults(project.emails), ...input.emails };
@@ -256,6 +299,7 @@ export const projectRoutes = new Hono<AppEnv>()
         ...(input.widget && { widget: { ...defaultWidgetConfig, ...(input.replaceWidget ? {} : project.widget), ...input.widget } }),
         ...(input.emails && { emails }),
         ...(input.groupDuplicates !== undefined && { groupDuplicates: input.groupDuplicates }),
+        ...(input.rules && { rules: input.rules as ProjectRules }),
         updatedAt: new Date(),
       })
       .where(eq(schema.projects.id, project.id))

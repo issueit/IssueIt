@@ -55,6 +55,15 @@ export const config = {
   secretKey: str("SECRET_KEY", ""),
   dataDir: str("DATA_DIR", "./data"),
 
+  /**
+   * "hosted" turns on plans, billing and the per-organisation limits that go
+   * with them. A self-hosted install is "selfhost": every feature is on and
+   * the limits below are the operator's own, not a plan's.
+   */
+  edition: (optional("EDITION") === "hosted" ? "hosted" : "selfhost") as "hosted" | "selfhost",
+  /** Days a new organisation gets on the trial plan. 0 starts everyone on free. */
+  trialDays: int("TRIAL_DAYS", 14),
+
   allowSignup: bool("ALLOW_SIGNUP", true),
   /** Turns on /metrics when set; the same value is the bearer token for it. */
   metricsToken: optional("METRICS_TOKEN") ?? "",
@@ -79,6 +88,24 @@ export const config = {
   smtp: {
     url: optional("SMTP_URL"),
     from: str("SMTP_FROM", "Issueit <no-reply@issueit.app>"),
+  },
+
+  /** Payments. Without a secret key the billing endpoints say so rather than half-working. */
+  stripe: {
+    secretKey: optional("STRIPE_SECRET_KEY") ?? "",
+    webhookSecret: optional("STRIPE_WEBHOOK_SECRET") ?? "",
+    /** Price ids from the Stripe dashboard, one per plan and interval. */
+    prices: {
+      solo: { monthly: optional("STRIPE_PRICE_SOLO_MONTHLY") ?? "", yearly: optional("STRIPE_PRICE_SOLO_YEARLY") ?? "" },
+      team: { monthly: optional("STRIPE_PRICE_TEAM_MONTHLY") ?? "", yearly: optional("STRIPE_PRICE_TEAM_YEARLY") ?? "" },
+      business: { monthly: optional("STRIPE_PRICE_BUSINESS_MONTHLY") ?? "", yearly: optional("STRIPE_PRICE_BUSINESS_YEARLY") ?? "" },
+    },
+  },
+
+  /** Where the daily jobs run: retention, digests, trial endings. 0 turns them off. */
+  jobs: {
+    hour: int("JOBS_HOUR_UTC", 7),
+    retention: bool("RETENTION_ENABLED", true),
   },
 
   oauth: {

@@ -4,11 +4,15 @@ import { z } from "zod";
 import { config } from "../config";
 import { db, schema } from "../db";
 import { randomToken, sha256 } from "../lib/crypto";
-import { badRequest, conflict, forbidden, notFound } from "../lib/errors";
+import { AppError, badRequest, conflict, forbidden, notFound } from "../lib/errors";
 import { newId } from "../lib/ids";
 import { storage } from "../lib/storage";
 import { body, type AppEnv } from "../http";
 import { requireOwner, requireUser } from "../auth/session";
+import { limitsFor, startingPlan } from "../billing/entitlements";
+import { plans } from "../billing/plans";
+import { queueNotice } from "../mail/notices";
+import { systemMailAvailable } from "../mail/system";
 import { policySchema } from "../delivery/policy";
 
 const orgName = z.string().trim().min(1, "Enter a name.").max(80);
@@ -18,7 +22,7 @@ export const orgRoutes = new Hono<AppEnv>().post("/", requireUser, async (c) => 
   const input = await body(c, z.object({ name: orgName }));
   const id = newId("org");
   await db.transaction(async (tx) => {
-    await tx.insert(schema.organisations).values({ id, name: input.name });
+    await tx.insert(schema.organisations).values({ id, name: input.name, ...startingPlan() });
     await tx.insert(schema.memberships).values({ orgId: id, userId: c.get("user").id, role: "owner" });
   });
   return c.json({ id }, 201);
@@ -133,6 +137,20 @@ export const orgScoped = new Hono<AppEnv>()
       .innerJoin(schema.users, eq(schema.users.id, schema.memberships.userId))
       .where(and(eq(schema.memberships.orgId, orgId), eq(schema.users.email, input.email)));
     if (already.length) throw conflict("That person is already a member.");
+    const limit = limitsFor(c.get("org")).members;
+    if (limit) {
+      const [counted] = await db.execute<{ n: number }>(dsql`
+        select ((select count(*) from memberships where org_id = ${orgId})
+              + (select count(*) from invitations where org_id = ${orgId} and accepted_at is null and expires_at > now()))::int as n`);
+      if (counted.n >= limit) {
+        throw new AppError(
+          402,
+          "upgrade_required",
+          `This plan covers ${limit} people, including invitations that haven't been accepted. ${plans.team.name} and above have no limit.`,
+          { feature: "members", plan: "team" },
+        );
+      }
+    }
     // Used and lapsed invitations have no further purpose; don't keep them, or the addresses in them.
     await db.delete(schema.invitations).where(or(lt(schema.invitations.expiresAt, new Date()), isNotNull(schema.invitations.acceptedAt)));
     const token = randomToken(24);
@@ -145,7 +163,16 @@ export const orgScoped = new Hono<AppEnv>()
       invitedBy: c.get("user").id,
       expiresAt: new Date(Date.now() + 7 * 86400_000),
     });
-    return c.json({ link: `${config.appUrl}/invite/${token}` }, 201);
+    const link = `${config.appUrl}/invite/${token}`;
+    // The link is returned as well, so an owner can pass it on themselves
+    // when a colleague's mail server eats it.
+    const sent = await queueNotice({
+      to: input.email,
+      kind: "invitation",
+      orgId,
+      context: { url: link, orgName: c.get("org").name, invitedBy: c.get("user").name || c.get("user").email, role: input.role },
+    });
+    return c.json({ link, sent, email: systemMailAvailable() }, 201);
   })
   .delete("/invitations/:id", requireOwner, async (c) => {
     await db.delete(schema.invitations).where(and(eq(schema.invitations.orgId, c.get("orgId")), eq(schema.invitations.id, c.req.param("id"))));

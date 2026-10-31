@@ -8,6 +8,7 @@ import { publish } from "../lib/events";
 import { AppError, badRequest, notFound } from "../lib/errors";
 import { newId } from "../lib/ids";
 import { checkUrlShape, UnsafeUrlError } from "../lib/ssrf";
+import { assertRoom } from "../billing/entitlements";
 import { body, parse, type AppEnv } from "../http";
 import { describeProvider, getProvider, providers } from "../integrations";
 import { handleFor, loadConnection, markConnection } from "../integrations/connections";
@@ -275,6 +276,15 @@ export const destinationRoutes = new Hono<AppEnv>()
     const input = await body(c, destinationInput);
     const provider = getProvider(input.provider);
     if (!provider) throw badRequest("That service isn't supported.");
+    await assertRoom(
+      c.get("org"),
+      "destinations",
+      db
+        .select({ n: sql<number>`count(*)::int` })
+        .from(schema.destinations)
+        .where(eq(schema.destinations.projectId, project.id))
+        .then((rows) => rows[0]?.n ?? 0),
+    );
     const id = newId("dst");
     let connectionId: string | null = null;
     let secrets: string | null = null;

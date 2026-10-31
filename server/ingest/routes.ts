@@ -14,8 +14,10 @@ import { storage } from "../lib/storage";
 import { describeUserAgent } from "../lib/useragent";
 import { reportCountry } from "../lib/geo";
 import { clientIp, parse } from "../http";
+import { allowanceFor, countedOne, limitsFor, noteRefusal, warnAboutUsage } from "../billing/entitlements";
 import { enqueueDuplicate, enqueueReportEvent } from "../delivery/queue";
 import { queueReceipt } from "../mail/outbox";
+import { notifyAboutReport } from "../mail/notify";
 import { cleanDiagnostics } from "./diagnostics";
 import { cleanFilename, sniff } from "./files";
 import { fingerprintFor } from "./grouping";
@@ -130,11 +132,12 @@ export const ingestRoutes = new Hono()
     if (!project || !project.publicSubmissions) throw notFound("That project");
     c.header("cache-control", "public, max-age=60");
     const emails = emailsWithDefaults(project.emails);
+    const allowed = await attachmentLimits(project.orgId);
     return c.json({
       project: { id: project.id, name: project.name },
       widget: widgetWithDefaults(project.widget),
       emails: { updates: emails.enabled && (emails.receipt || emails.resolved) },
-      limits: { attachmentBytes: config.limits.attachmentBytes, attachmentsPerReport: config.limits.attachmentsPerReport },
+      limits: allowed,
     });
   })
   /** The project's logo, for the widget, the hosted form and emails. The ?v= changes with each upload. */
@@ -221,11 +224,15 @@ export const ingestRoutes = new Hono()
         }
       }
 
+      const org = await db.query.organisations.findFirst({ where: eq(schema.organisations.id, project.orgId) });
+      if (!org) throw notFound("That project");
+      const plan = limitsFor(org);
+
       const ip = keyedHash(clientIp(c));
       const limits: Limit[] = [{ key: `ingest:project:${project.id}`, max: config.limits.reportsPerProjectPerHour, windowMs: 3600_000 }];
       limits.push(
         viaKeyId
-          ? { key: `ingest:key:${viaKeyId}`, max: config.limits.reportsPerKeyPerMinute, windowMs: 60_000 }
+          ? { key: `ingest:key:${viaKeyId}`, max: plan.reportsPerKeyPerMinute, windowMs: 60_000 }
           : { key: `ingest:ip:${project.id}:${ip}`, max: config.limits.reportsPerIpPerMinute, windowMs: 60_000 },
       );
       const rl = hitAll(limits);
@@ -233,12 +240,24 @@ export const ingestRoutes = new Hono()
         c.header("retry-after", String(rl.retryAfter));
         throw tooMany("Too many reports in a short time. Wait a moment and try again.");
       }
-      if (config.limits.reportsPerMonth) {
-        const [row] = await db.execute<{ n: number }>(
-          sql`select count(*)::int as n from reports where org_id = ${project.orgId} and created_at >= date_trunc('month', now())`,
+
+      /**
+       * The monthly allowance. Issueit keeps accepting a little past it,
+       * because a real bug report from a real user is worth more than a
+       * tidy line, and tells the owners rather than failing silently.
+       */
+      const allowance = await allowanceFor(org);
+      if (!allowance.ok) {
+        await noteRefusal(org.id, "plan_limit");
+        void warnAboutUsage(org, allowance);
+        c.header("retry-after", String(secondsToNextMonth()));
+        throw new AppError(
+          429,
+          "plan_limit",
+          `This organisation has used its ${allowance.limit} reports for this month. The allowance resets at the start of next month, or an owner can change plan.`,
         );
-        if (row.n >= config.limits.reportsPerMonth) throw new AppError(429, "plan_limit", "This project has reached its monthly report limit.");
       }
+      if (allowance.grace) void warnAboutUsage(org, allowance);
 
       const { input, files } = await readBody(c);
 
@@ -266,10 +285,11 @@ export const ingestRoutes = new Hono()
         // Pretend to accept honeypot submissions so bots learn nothing.
         return c.json({ success: true, report_id: newId("rep"), message: "Report received" }, 201);
       }
-      if (files.length > config.limits.attachmentsPerReport) throw badRequest(`Attach up to ${config.limits.attachmentsPerReport} files.`);
+      const allowed = { attachmentBytes: Math.min(plan.attachmentBytes, config.limits.attachmentBytes), attachmentsPerReport: Math.min(plan.attachmentsPerReport, config.limits.attachmentsPerReport) };
+      if (files.length > allowed.attachmentsPerReport) throw badRequest(`Attach up to ${allowed.attachmentsPerReport} files.`);
 
       const prepared = files.map((f, i) => {
-        if (f.data.byteLength > config.limits.attachmentBytes) throw new AppError(413, "attachment_too_large", `${f.name ?? `Attachment ${i + 1}`} is larger than ${config.limits.attachmentBytes / 1024 / 1024} MB.`);
+        if (f.data.byteLength > allowed.attachmentBytes) throw new AppError(413, "attachment_too_large", `${f.name ?? `Attachment ${i + 1}`} is larger than ${allowed.attachmentBytes / 1024 / 1024} MB.`);
         if (!f.data.byteLength) throw badRequest(`${f.name ?? `Attachment ${i + 1}`} is empty.`);
         const type = sniff(f.data);
         if (!type) throw new AppError(415, "unsupported_attachment", `${f.name ?? `Attachment ${i + 1}`} isn't a supported file type. Use an image, video, PDF, text file or zip.`);
@@ -279,7 +299,10 @@ export const ingestRoutes = new Hono()
       if (config.limits.storageBytes && prepared.length) {
         const [row] = await db.execute<{ bytes: number }>(sql`select coalesce(sum(size_bytes), 0)::bigint as bytes from attachments where org_id = ${project.orgId}`);
         const incoming = prepared.reduce((n, f) => n + f.data.byteLength, 0);
-        if (Number(row.bytes) + incoming > config.limits.storageBytes) throw new AppError(507, "storage_full", "This organisation has used all of its attachment storage.");
+        if (Number(row.bytes) + incoming > config.limits.storageBytes) {
+          await noteRefusal(org.id, "storage_limit");
+          throw new AppError(507, "storage_full", "This organisation has used all of its attachment storage.");
+        }
       }
 
       const ua = c.req.header("user-agent");
@@ -287,7 +310,7 @@ export const ingestRoutes = new Hono()
       const fromWidget = input.context?.userAgent ?? (origin ? ua : undefined);
       if (fromWidget) Object.assign(context, { userAgent: fromWidget.slice(0, 500) }, describeUserAgent(fromWidget));
 
-      const org = await db.query.organisations.findFirst({ where: eq(schema.organisations.id, project.orgId), columns: { settings: true } });
+
       const country = reportCountry(c, context.timezone, org?.settings.location);
 
       const metadata = input.metadata ?? {};
@@ -435,6 +458,10 @@ export const ingestRoutes = new Hono()
         throw err;
       }
 
+      countedOne(org.id);
+      // Telling someone it arrived, if anyone asked to hear about it.
+      void notifyAboutReport(report, project).catch((err) => console.error("[ingest] couldn't send notifications for", report.id, err));
+
       // The report is stored. Queueing delivery and email can fail without losing it.
       try {
         if (lead) await enqueueDuplicate(lead, report);
@@ -451,6 +478,23 @@ export const ingestRoutes = new Hono()
       return c.json({ success: true, report_id: report.id, message: "Report received", duplicate: !!lead }, 201);
     },
   );
+
+/** What the widget should say it accepts: the plan's limit, under the operator's. */
+async function attachmentLimits(orgId: string) {
+  const org = await db.query.organisations.findFirst({ where: eq(schema.organisations.id, orgId) });
+  const plan = org ? limitsFor(org) : config.limits;
+  return {
+    attachmentBytes: Math.min(plan.attachmentBytes, config.limits.attachmentBytes),
+    attachmentsPerReport: Math.min(plan.attachmentsPerReport, config.limits.attachmentsPerReport),
+  };
+}
+
+/** How long until the allowance resets, for a Retry-After someone can act on. */
+function secondsToNextMonth(): number {
+  const now = new Date();
+  const next = Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1);
+  return Math.max(60, Math.round((next - now.getTime()) / 1000));
+}
 
 async function readBody(c: Context): Promise<{ input: z.infer<typeof reportInput>; files: RawFile[] }> {
   const type = c.req.header("content-type") ?? "";

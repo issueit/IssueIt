@@ -7,6 +7,7 @@ import type { schema } from "./db";
 import type { Scope } from "./db/schema";
 
 export type SessionUser = typeof schema.users.$inferSelect;
+export type RequestOrg = typeof schema.organisations.$inferSelect;
 
 /** An account token, when the request carried one instead of a session cookie. */
 export type RequestToken = {
@@ -21,6 +22,8 @@ export type AppEnv = {
     user: SessionUser;
     sessionId: string;
     orgId: string;
+    /** The organisation itself, so anything can ask what its plan allows. */
+    org: RequestOrg;
     role: "owner" | "member";
     /** How the request was authenticated. */
     via: "session" | "token";

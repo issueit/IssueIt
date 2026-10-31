@@ -11,6 +11,7 @@ import type { AppEnv } from "./http";
 import { authRoutes, meRoutes } from "./auth/routes";
 import { deviceApprovalRoutes, deviceRoutes } from "./auth/device";
 import { auditTrail, enforceScope, requireAuth, resolveOrg } from "./auth/tokens";
+import { enforceFeatures } from "./billing/entitlements";
 import { invitationRoutes, orgRoutes, orgScoped } from "./api/organisations";
 import { projectRoutes } from "./api/projects";
 import { attachmentRoutes, reportRoutes, streamAttachment } from "./api/reports";
@@ -18,6 +19,9 @@ import { connectionRoutes, deliveryRoutes, destinationRoutes, orgDestinationRout
 import { analyticsRoutes } from "./api/analytics";
 import { eventRoutes, usageRoutes } from "./api/usage";
 import { auditRoutes, tokenRoutes, whoamiRoutes } from "./api/tokens";
+import { billingRoutes, billingWebhook } from "./api/billing";
+import { notificationRoutes } from "./api/notifications";
+import { onboardingRoutes } from "./api/onboarding";
 import { releaseRoutes } from "./api/releases";
 import { configRoutes, rulePreviewRoutes } from "./api/config";
 import { healthRoutes, metricsRoutes } from "./api/health";
@@ -91,7 +95,7 @@ export function createApp() {
    * records whatever changed.
    */
   const scoped = new Hono<AppEnv>()
-    .use("*", requireAuth, resolveOrg, enforceScope, auditTrail)
+    .use("*", requireAuth, resolveOrg, enforceScope, enforceFeatures, auditTrail)
     .route("/", orgScoped)
     .route("/projects", projectRoutes)
     .route("/projects/:project/destinations", destinationRoutes)
@@ -106,11 +110,20 @@ export function createApp() {
     .route("/delivery-policy", policyRoutes)
     .route("/analytics", analyticsRoutes)
     .route("/health", healthRoutes)
+    .route("/billing", billingRoutes)
+    .route("/notifications", notificationRoutes)
+    .route("/onboarding", onboardingRoutes)
     .route("/tokens", tokenRoutes)
     .route("/whoami", whoamiRoutes)
     .route("/audit", auditRoutes)
     .route("/usage", usageRoutes)
     .route("/events", eventRoutes);
+
+  /**
+   * Stripe's webhook. Outside the authenticated API on purpose: its
+   * signature is its authentication, and it must see the raw body.
+   */
+  app.route("/api/billing/webhook", billingWebhook);
 
   app.route("/api/auth/device", deviceRoutes);
   app.route("/api/auth", authRoutes);

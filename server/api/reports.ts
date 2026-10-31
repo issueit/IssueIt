@@ -7,6 +7,7 @@ import { publish } from "../lib/events";
 import { enqueueStatusChange } from "../delivery/queue";
 import { badRequest, notFound } from "../lib/errors";
 import { storage } from "../lib/storage";
+import { newId } from "../lib/ids";
 import { body, parse, type AppEnv } from "../http";
 import { fenced } from "../auth/tokens";
 import { enqueueReportEvent } from "../delivery/queue";
@@ -19,6 +20,8 @@ const listQuery = z.object({
   priority: z.enum(priorities).optional(),
   q: z.string().trim().max(200).optional(),
   delivery: z.enum(["failed"]).optional(),
+  /** A user id, "me", or "none" for anything nobody has picked up. */
+  assignee: z.string().optional(),
   /** One report by its per-project number, for "report #14". */
   number: z.coerce.number().int().min(1).optional(),
   /** Only reports since this moment, for a digest or a catch-up. */
@@ -57,6 +60,9 @@ export const reportRoutes = new Hono<AppEnv>()
     }
     if (query.number) where.push(eq(r.number, query.number));
     if (query.since) where.push(gte(r.createdAt, query.since));
+    if (query.assignee === "none") where.push(isNull(r.assigneeId));
+    else if (query.assignee === "me") where.push(eq(r.assigneeId, c.get("user").id));
+    else if (query.assignee) where.push(eq(r.assigneeId, query.assignee));
     if (query.delivery === "failed") where.push(sql`exists (select 1 from deliveries d where d.report_id = ${r.id} and d.status = 'failed')`);
     const cursor = decodeCursor(query.cursor);
     if (cursor) where.push(sql`(${r.createdAt}, ${r.id}) < (${cursor.date.toISOString()}::timestamptz, ${cursor.id})`);
@@ -76,6 +82,11 @@ export const reportRoutes = new Hono<AppEnv>()
         lastSeenAt: r.lastSeenAt,
         projectId: r.projectId,
         projectName: schema.projects.name,
+        assigneeId: r.assigneeId,
+        // Qualified by hand: this query has a join, but the name is read from
+        // a table that isn't in it.
+        assigneeName: sql<string | null>`(select u.name from users u where u.id = reports.assignee_id)`,
+        noteCount: sql<number>`(select count(*)::int from report_notes n where n.report_id = reports.id)`,
         attachmentCount: sql<number>`(select count(*)::int from attachments a where a.report_id = ${r.id})`,
         delivered: sql<number>`(select count(*)::int from deliveries d where d.report_id = ${r.id} and d.status = 'delivered' and not d.is_test)`,
         failed: sql<number>`(select count(*)::int from deliveries d where d.report_id = ${r.id} and d.status = 'failed')`,
@@ -141,23 +152,50 @@ export const reportRoutes = new Hono<AppEnv>()
       .from(schema.emails)
       .where(eq(schema.emails.reportId, report.id))
       .orderBy(asc(schema.emails.createdAt));
+    const notes = await db
+      .select({ id: schema.reportNotes.id, author: schema.reportNotes.author, userId: schema.reportNotes.userId, body: schema.reportNotes.body, createdAt: schema.reportNotes.createdAt, updatedAt: schema.reportNotes.updatedAt })
+      .from(schema.reportNotes)
+      .where(eq(schema.reportNotes.reportId, report.id))
+      .orderBy(asc(schema.reportNotes.createdAt));
+    const [assignee] = report.assigneeId
+      ? await db.select({ id: schema.users.id, name: schema.users.name, email: schema.users.email }).from(schema.users).where(eq(schema.users.id, report.assigneeId))
+      : [];
     const { ipHash: _ip, viaKeyId: _key, fingerprint: _fp, ...safe } = report;
     // Minified stacks are mapped back when the report is read, so maps
     // uploaded after the crash still help.
     const diagnostics = await symbolicate(report);
     return c.json({
-      report: { ...safe, diagnostics, project },
+      report: { ...safe, diagnostics, project, assignee: assignee ?? null },
       attachments: attachments.map((a) => ({ id: a.id, filename: a.filename, contentType: a.contentType, sizeBytes: a.sizeBytes, createdAt: a.createdAt })),
       deliveries,
       group: group ?? null,
       duplicates,
       emails,
+      notes,
     });
   })
   .patch("/:id", async (c) => {
-    const input = await body(c, z.object({ status: z.enum(reportStatuses).optional(), priority: z.enum(priorities).optional() }));
+    const input = await body(
+      c,
+      z.object({
+        status: z.enum(reportStatuses).optional(),
+        priority: z.enum(priorities).optional(),
+        /** A member's user id, or null to leave it to nobody in particular. */
+        assigneeId: z.string().nullable().optional(),
+      }),
+    );
     const report = await loadReport(c, c.req.param("id"));
-    if (!input.status && !input.priority) return c.json({ report });
+    if (input.assigneeId !== undefined) {
+      if (input.assigneeId) {
+        const member = await db.query.memberships.findFirst({
+          where: and(eq(schema.memberships.orgId, report.orgId), eq(schema.memberships.userId, input.assigneeId)),
+        });
+        if (!member) throw badRequest("That person isn't a member of this organisation.");
+      }
+      await db.update(schema.reports).set({ assigneeId: input.assigneeId, updatedAt: new Date() }).where(eq(schema.reports.id, report.id));
+      await publish({ type: "report.updated", orgId: report.orgId, projectId: report.projectId, reportId: report.id });
+    }
+    if (!input.status && !input.priority) return c.json({ report: await loadReport(c, report.id) });
     let updated = report;
     if (input.priority && input.priority !== report.priority) {
       [updated] = await db.update(schema.reports).set({ priority: input.priority, updatedAt: new Date() }).where(eq(schema.reports.id, report.id)).returning();
@@ -168,6 +206,56 @@ export const reportRoutes = new Hono<AppEnv>()
     }
     if (input.status) updated = await setReportStatus(updated, input.status);
     return c.json({ report: updated });
+  })
+  /**
+   * Notes: what was tried, what it turned out to be. Internal, never sent to
+   * a destination and never shown to the reporter.
+   */
+  .post("/:id/notes", async (c) => {
+    const input = await body(c, z.object({ body: z.string().trim().min(1, "Write something.").max(10_000) }));
+    const report = await loadReport(c, c.req.param("id"));
+    const user = c.get("user");
+    const [note] = await db
+      .insert(schema.reportNotes)
+      .values({ id: newId("nte"), orgId: report.orgId, reportId: report.id, userId: user.id, author: user.name || user.email, body: input.body })
+      .returning();
+    await publish({ type: "report.updated", orgId: report.orgId, projectId: report.projectId, reportId: report.id });
+    return c.json({ note }, 201);
+  })
+  .patch("/:id/notes/:noteId", async (c) => {
+    const input = await body(c, z.object({ body: z.string().trim().min(1).max(10_000) }));
+    const report = await loadReport(c, c.req.param("id"));
+    const [note] = await db
+      .update(schema.reportNotes)
+      .set({ body: input.body, updatedAt: new Date() })
+      .where(
+        and(
+          eq(schema.reportNotes.id, c.req.param("noteId")),
+          eq(schema.reportNotes.reportId, report.id),
+          // Your own note. Editing someone else's words isn't editing.
+          eq(schema.reportNotes.userId, c.get("user").id),
+        ),
+      )
+      .returning();
+    if (!note) throw notFound("That note");
+    return c.json({ note });
+  })
+  .delete("/:id/notes/:noteId", async (c) => {
+    const report = await loadReport(c, c.req.param("id"));
+    const owner = c.get("role") === "owner";
+    const [note] = await db
+      .delete(schema.reportNotes)
+      .where(
+        and(
+          eq(schema.reportNotes.id, c.req.param("noteId")),
+          eq(schema.reportNotes.reportId, report.id),
+          // An owner can tidy up after anyone; everyone else, after themselves.
+          ...(owner ? [] : [eq(schema.reportNotes.userId, c.get("user").id)]),
+        ),
+      )
+      .returning();
+    if (!note) throw notFound("That note");
+    return c.json({ ok: true });
   })
   /** Puts a report into another report's group by hand, e.g. when two people described the same bug differently. */
   .post("/:id/group", async (c) => {

@@ -36,6 +36,13 @@
       "when": 1793432123377,
       "tag": "0004_releases_and_rules",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1793459301168,
+      "tag": "0005_plans_and_notices",
+      "breakpoints": true
     }
   ]
 }

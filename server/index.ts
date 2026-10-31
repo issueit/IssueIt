@@ -5,6 +5,8 @@ import { createApp } from "./app";
 import { startWorker, stopWorker } from "./delivery/worker";
 import { startSync, stopSync } from "./delivery/sync";
 import { startMailWorker, stopMailWorker } from "./mail/outbox";
+import { startNoticeWorker, stopNoticeWorker } from "./mail/notices";
+import { startJobs, stopJobs } from "./jobs";
 
 /**
  * One process by default (ROLE=all): the dashboard, the ingestion API and the
@@ -21,6 +23,8 @@ async function main() {
     const shutdown = () => {
       stopWorker();
       stopMailWorker();
+      stopNoticeWorker();
+      stopJobs();
       stopSync();
       server.close(() => void sql.end({ timeout: 5 }).finally(() => process.exit(0)));
       setTimeout(() => process.exit(0), 8000).unref();
@@ -31,7 +35,9 @@ async function main() {
   if (config.role !== "api") {
     startWorker();
     startMailWorker();
+    startNoticeWorker();
     startSync();
+    startJobs();
   }
 }
 
