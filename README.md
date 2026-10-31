@@ -51,7 +51,9 @@ npm run db:generate           # after changing server/db/schema.ts
 | `server/` | Hono API, one process: dashboard API (`api/`), ingestion (`ingest/`), delivery worker (`delivery/`) |
 | `server/integrations/` | Provider framework: hand-written providers with OAuth in `providers/`, token-based services as short specs in `catalogue/` |
 | `server/db/schema.ts` | Drizzle schema; migrations in `drizzle/` |
-| `web/` | React dashboard. Design tokens in `web/src/styles/tokens.css`, shared components in `web/src/components/ui` |
+| `web/` | React dashboard, marketing site, documentation and support articles. Design tokens in `web/src/styles/tokens.css`, shared components in `web/src/components/ui` |
+| `web/src/pages/docs/` | The documentation platform: `nav.ts` is the index, `content/` is the writing. Served at `/docs`, and at the root of `DOCS_URL`'s host when it has one |
+| `web/src/pages/support/` | Support articles at `/articles/{locale}/{slug}`: task-shaped, with steps, for people rather than for clients |
 | `widget/` | The embeddable widget, no dependencies; the hosted form at `/r/{project_id}` reuses it |
 | `mcp/` | `@issueit/mcp`, the MCP server for coding agents. Its tools are shared with the app's own `/mcp` endpoint |
 | `cli/` | `issueit`, the command line. Shares the API client and renderers with `mcp/` |
@@ -90,8 +92,9 @@ npm run db:generate           # after changing server/db/schema.ts
 - **Audit**: every state-changing request, by a person or a token, is recorded in `audit_events` and shown under Settings › Audit log.
 - **Agents**: `mcp/` is the MCP server: twenty-one tools, four prompts and a few resources over the same API. `POST /mcp` serves it over HTTP from the app itself, dispatching into the router rather than calling itself over the network.
 - **API description**: `GET /openapi.json` is generated from Hono's own route table plus `server/api/openapi.ts`, with the scope each endpoint needs read from the code that enforces it. `server/api/openapi.test.ts` fails if a route is added without a line in it.
+- **Writing**: two sets of pages, on purpose. The documentation (`web/src/pages/docs/`) is for somebody building against Issueit: 43 pages behind a sidebar, a contents list read back out of each rendered page, and a search index that is the nav itself, so a page not listed in `nav.ts` doesn't exist. The support articles (`web/src/pages/support/`) are for somebody trying to get something done: one job each, numbered steps, what it applies to and when it was last checked. Anchors from the old single-page docs and from the old `/platform` reference are mapped to their new pages in `nav.ts`.
 
-Full API, webhook and self-hosting documentation is at `/docs` in the running app, and the management API is described at `/openapi.json`.
+Documentation is at `/docs` in the running app — or at the root of `DOCS_URL` when that is its own subdomain, which the client detects from the hostname rather than from a setting. Support articles are at `/articles/en`, `/platform` describes the product, and the management API is described at `/openapi.json`. `GET /api/urls` tells a page which addresses this install serves intake, the CDN and the documentation from, so copyable examples are right on a split install and on a single-origin one.
 
 ## Agents
 

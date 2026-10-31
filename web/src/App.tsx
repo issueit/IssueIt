@@ -37,9 +37,10 @@ import { IntegrationsDirectory, IntegrationsLayout, IntegrationsLog, Integration
 import { IntegrationProvider } from "./pages/integrations/Provider";
 import { TrelloReturn } from "./pages/TrelloReturn";
 import { NotFound } from "./pages/NotFound";
+import { onDocsHost } from "./lib/hosts";
 import { Skeleton } from "./components/ui/feedback";
 
-const Docs = lazy(() => import("./pages/Docs"));
+const Docs = lazy(() => import("./pages/docs/Docs"));
 /** Charts and the world map are heavy, so the dashboard loads on demand. */
 const Dashboard = lazy(() => import("./pages/dashboard/Dashboard"));
 const Landing = lazy(() => import("./pages/site/Landing"));
@@ -49,6 +50,8 @@ const Careers = lazy(() => import("./pages/site/pages/Careers"));
 const Legal = lazy(() => import("./pages/site/pages/Legal"));
 const Platform = lazy(() => import("./pages/site/pages/Platform"));
 const Pricing = lazy(() => import("./pages/site/pages/Pricing"));
+const Support = lazy(() => import("./pages/support/Support"));
+const SupportArticle = lazy(() => import("./pages/support/Article"));
 
 /** Public pages load on demand; the dashboard never pays for them. */
 const page = (Page: ComponentType) => (
@@ -58,6 +61,9 @@ const page = (Page: ComponentType) => (
 );
 
 export function App() {
+  // On the documentation subdomain these routes would compete with the
+  // documentation's own, so that host gets a router of its own instead.
+  if (onDocsHost) return <DocsSite />;
   return (
     <BrowserRouter>
       <Routes>
@@ -86,14 +92,11 @@ export function App() {
         <Route path="/verify" element={<VerifyEmail />} />
         <Route path="/invite/:token" element={<InvitePage />} />
         <Route path="/device" element={<DevicePage />} />
-        <Route
-          path="/docs"
-          element={
-            <Suspense fallback={null}>
-              <Docs />
-            </Suspense>
-          }
-        />
+        <Route path="/docs/*" element={page(Docs)} />
+        <Route path="/support" element={<Navigate to="/articles/en" replace />} />
+        <Route path="/articles" element={<Navigate to="/articles/en" replace />} />
+        <Route path="/articles/:locale" element={page(Support)} />
+        <Route path="/articles/:locale/:slug" element={page(SupportArticle)} />
         <Route element={<Authenticated />}>
           <Route path="/oauth/trello" element={<TrelloReturn />} />
           <Route element={<Shell />}>
@@ -141,6 +144,29 @@ export function App() {
       <DialogHost />
     </BrowserRouter>
   );
+}
+
+/**
+ * The documentation subdomain. Every address is a documentation page, with
+ * `/docs/...` kept working for anyone who pasted an address from the app's
+ * own host. The toast host comes along because the copy buttons use it.
+ */
+function DocsSite() {
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/docs/*" element={<StripDocsPrefix />} />
+        <Route path="/*" element={page(Docs)} />
+      </Routes>
+      <ToastHost />
+    </BrowserRouter>
+  );
+}
+
+/** docs.example.com/docs/collect/widget is the same page as /collect/widget. */
+function StripDocsPrefix() {
+  const { pathname, hash } = useLocation();
+  return <Navigate to={`${pathname.replace(/^\/docs/, "") || "/"}${hash}`} replace />;
 }
 
 /** Loads the signed-in person; sends everyone else to sign in, keeping where they were going. */

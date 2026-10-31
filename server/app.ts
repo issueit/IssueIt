@@ -161,6 +161,16 @@ export function createApp() {
       })),
     });
   });
+  /**
+   * Where this install serves each thing. The documentation shows endpoints
+   * in code samples a reader is meant to copy, and it is served from the
+   * same build whether that's one origin or five, so it asks rather than
+   * assuming the address bar is the intake host.
+   */
+  app.get("/api/urls", (c) => {
+    c.header("cache-control", "public, max-age=300");
+    return c.json({ app: config.appUrl, drop: config.dropUrl, cdn: config.cdnUrl, docs: config.docsUrl, marketing: config.marketingUrl, edition: config.edition });
+  });
   /** The integration catalogue, public so the docs and the marketing site list what's live. */
   app.get("/api/catalogue", (c) => {
     c.header("cache-control", "public, max-age=300");

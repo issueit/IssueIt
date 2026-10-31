@@ -8,6 +8,7 @@ import { Segmented } from "../../components/ui/controls";
 import { AsciiField } from "./AsciiField";
 import { arriveAtHash, useReveal } from "./motion";
 import { company } from "./company";
+import { DocsLink } from "../../lib/docs-link";
 import "./site.css";
 
 /** Shared frame for every public page: header, background, footer. */
@@ -62,7 +63,8 @@ export function Nav() {
           ))}
           <Link to="/pricing">Pricing</Link>
           <Link to="/platform">Platform</Link>
-          <Link to="/docs">Docs</Link>
+          <DocsLink>Docs</DocsLink>
+          <Link to="/articles/en">Support</Link>
         </nav>
         <div className="nav-actions">
           {signedIn ? (
@@ -86,7 +88,7 @@ export function Nav() {
   );
 }
 
-type FootLink = { label: string; to: string; note?: string };
+type FootLink = { label: string; to: string; note?: string; docs?: true };
 
 const columns: Array<{ title: string; links: FootLink[] }> = [
   {
@@ -97,25 +99,37 @@ const columns: Array<{ title: string; links: FootLink[] }> = [
       { label: "Retries and recovery", to: "/#reliability" },
       { label: "Self-hosting", to: "/#self-host" },
       { label: "Pricing", to: "/pricing" },
-      { label: "Documentation", to: "/docs" },
+      { label: "The platform", to: "/platform" },
+      { label: "Documentation", to: "/", docs: true },
       { label: "Sign in", to: "/login" },
     ],
   },
   {
-    title: "Platform",
+    title: "Developers",
     links: [
-      { label: "POST /v1/{project}/reports", to: "/platform#ingest" },
-      { label: "window.Issueit runtime", to: "/platform#widget" },
-      { label: "Webhook events", to: "/platform#webhooks" },
-      { label: "Issueit-Signature (HMAC-SHA256)", to: "/platform#signatures" },
-      { label: "Outbox, retries and backoff", to: "/platform#delivery" },
-      { label: "Egress and SSRF rules", to: "/platform#egress" },
-      { label: "Rate limits", to: "/platform#limits" },
-      { label: "Error codes", to: "/platform#errors" },
-      { label: "Object id prefixes", to: "/platform#ids" },
-      { label: "Signed attachment links", to: "/platform#attachments" },
-      { label: "GET /api/catalogue", to: "/platform#catalogue" },
-      { label: "Environment variables", to: "/platform#environment" },
+      { label: "Quickstart", to: "/quickstart", docs: true },
+      { label: "POST /v1/{project}/reports", to: "/reference/intake", docs: true },
+      { label: "window.Issueit runtime", to: "/collect/widget-api", docs: true },
+      { label: "Webhook events", to: "/reference/webhook-events", docs: true },
+      { label: "Issueit-Signature (HMAC-SHA256)", to: "/deliver/signatures", docs: true },
+      { label: "Outbox, retries and backoff", to: "/deliver/outbox", docs: true },
+      { label: "MCP server for agents", to: "/automate/mcp", docs: true },
+      { label: "Command line", to: "/automate/cli", docs: true },
+      { label: "Rate limits", to: "/reference/limits", docs: true },
+      { label: "Error codes", to: "/reference/errors", docs: true },
+      { label: "Environment variables", to: "/reference/environment", docs: true },
+      { label: "openapi.json", to: "/openapi.json" },
+    ],
+  },
+  {
+    title: "Support",
+    links: [
+      { label: "Support articles", to: "/articles/en" },
+      { label: "Add the report button", to: "/articles/en/add-the-bug-report-button-to-your-website" },
+      { label: "Reports aren't arriving", to: "/articles/en/reports-are-not-reaching-your-issue-tracker" },
+      { label: "Too many reports for one bug", to: "/articles/en/stop-getting-hundreds-of-reports-for-one-bug" },
+      { label: "Run Issueit yourself", to: "/articles/en/install-issueit-on-your-own-server" },
+      { label: "Write to us", to: `mailto:${company.email.support}` },
     ],
   },
   {
@@ -145,8 +159,9 @@ function FootAnchor({ link }: { link: FootLink }) {
       {link.note && <span className="foot-note tabular">{link.note}</span>}
     </>
   );
-  // Landing-page sections and mail links are plain anchors; pages use the router.
-  if (link.to.startsWith("mailto:") || link.to.startsWith("/#")) return <a href={link.to}>{body}</a>;
+  if (link.docs) return <DocsLink to={link.to}>{body}</DocsLink>;
+  // Landing-page sections, files and mail links are plain anchors; pages use the router.
+  if (link.to.startsWith("mailto:") || link.to.startsWith("/#") || link.to.endsWith(".json")) return <a href={link.to}>{body}</a>;
   return <Link to={link.to}>{body}</Link>;
 }
 

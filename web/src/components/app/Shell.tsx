@@ -6,6 +6,7 @@ import { useOrgEvents } from "../../lib/events";
 import { useProjects } from "../../lib/queries";
 import { useOrg } from "../../lib/session";
 import { setTheme, useAppearance } from "../../lib/theme";
+import { DocsLink } from "../../lib/docs-link";
 import { IconButton } from "../ui/Button";
 import { prompt } from "../ui/Dialog";
 import { Menu } from "../ui/Menu";
@@ -138,15 +139,13 @@ function Sidebar() {
       </nav>
 
       <div className="mt-auto flex flex-col gap-px px-2.5 pb-1.5">
-        <NavLink
-          to="/docs"
+        <DocsLink
           target="_blank"
           className="flex items-center gap-2.5 rounded-md px-2 text-sm font-medium text-text-2 hover:bg-hover hover:text-text transition-colors"
-          style={{ height: "var(--nav-item-h)" }}
         >
           <BookMinimalisticIcon size={16} />
           <span className="flex-1">Documentation</span>
-        </NavLink>
+        </DocsLink>
         <NavLink
           to="/settings"
           className={({ isActive }) =>

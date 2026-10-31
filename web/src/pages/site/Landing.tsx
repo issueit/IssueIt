@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Link } from "react-router";
 import { useMe } from "../../lib/session";
+import { DocsLink } from "../../lib/docs-link";
 import { AltArrowRightIcon, CameraMinimalisticIcon, KeyMinimalistic2Icon, RefreshIcon, ShieldCheckIcon, SquareArrowRightUpIcon, UsersGroupRoundedIcon } from "../../components/ui/icons";
 import { HeroDemo } from "./HeroDemo";
 import { Intake } from "./Intake";
@@ -151,9 +152,7 @@ function Hero({ signedIn }: { signedIn: boolean }) {
               <AltArrowRightIcon size={14} />
             </Link>
           )}
-          <Link to="/docs" className="btn site-btn site-btn--lg site-btn--ghost">
-            Read the docs
-          </Link>
+          <DocsLink className="btn site-btn site-btn--lg site-btn--ghost">Read the docs</DocsLink>
         </div>
       </div>
       <div className="hero-stage fade-up" style={{ ["--d" as string]: "1000ms" } as CSSProperties}>
@@ -492,9 +491,7 @@ export default function Landing() {
                 {signedIn ? "Open inbox" : "Create your first project"}
                 <AltArrowRightIcon size={14} />
               </Link>
-              <Link to="/docs" className="btn site-btn site-btn--lg site-btn--ghost">
-                Read the docs
-              </Link>
+              <DocsLink className="btn site-btn site-btn--lg site-btn--ghost">Read the docs</DocsLink>
             </div>
           </div>
         </section>

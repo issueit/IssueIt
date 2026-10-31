@@ -16,6 +16,8 @@ export const company = {
   legalUpdated: "30 October 2026",
   email: {
     hello: "hello@issueit.app",
+    support: "support@issueit.app",
+    docs: "docs@issueit.app",
     privacy: "privacy@issueit.app",
     security: "security@issueit.app",
     legal: "legal@issueit.app",

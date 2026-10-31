@@ -2345,8 +2345,8 @@ br.br-sm {
 }
 .foot-cols {
   display: grid;
-  grid-template-columns: 1fr 1.7fr 1fr 1fr;
-  gap: 32px;
+  grid-template-columns: 1fr 1.6fr 1.2fr 0.9fr 0.9fr;
+  gap: 30px;
 }
 .foot-col h2 {
   margin: 0 0 16px;
@@ -2374,8 +2374,8 @@ br.br-sm {
 .foot-col a:hover {
   color: var(--text);
 }
-/* The platform column names real things: paths, headers, codes. */
-.foot-col[data-col="platform"] a {
+/* The developers column names real things: paths, headers, codes. */
+.foot-col[data-col="developers"] a {
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
 }
@@ -2428,6 +2428,12 @@ br.br-sm {
 .foot-quiet {
   color: var(--text-4);
 }
+@media (max-width: 1180px) {
+  .foot-cols {
+    grid-template-columns: 1fr 1.6fr 1.2fr;
+    row-gap: 36px;
+  }
+}
 @media (max-width: 1000px) {
   .foot-top {
     grid-template-columns: 1fr;
@@ -2438,11 +2444,11 @@ br.br-sm {
     grid-template-columns: 1fr 1fr;
     row-gap: 40px;
   }
-  .foot-col[data-col="platform"] {
+  .foot-col[data-col="developers"] {
     grid-column: 1 / -1;
     grid-row: 2;
   }
-  .foot-col[data-col="platform"] ul {
+  .foot-col[data-col="developers"] ul {
     display: grid;
     grid-template-columns: 1fr 1fr;
     column-gap: 16px;
@@ -2452,7 +2458,7 @@ br.br-sm {
   }
 }
 @media (max-width: 440px) {
-  .foot-col[data-col="platform"] ul {
+  .foot-col[data-col="developers"] ul {
     grid-template-columns: 1fr;
   }
 }
@@ -3389,4 +3395,193 @@ br.br-sm {
 .price-card .btn--primary,
 .price-card .btn--primary:hover {
   color: var(--accent-fg);
+}
+
+/* ---------------------------------------------------------------- platform */
+
+/* The pipeline, as six stages across the top of the page. */
+.plat-flow {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  background: var(--surface);
+  list-style: none;
+  overflow: hidden;
+}
+.plat-flow li {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 20px 18px 22px;
+  border-left: 1px solid var(--border-subtle);
+}
+.plat-flow li:first-child {
+  border-left: 0;
+}
+.plat-flow-step {
+  font-size: var(--fs-2xs);
+  color: var(--text-4);
+}
+.plat-flow strong {
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.plat-flow span:not(.plat-flow-step) {
+  font-size: var(--fs-sm);
+  line-height: 1.55;
+  color: var(--text-3);
+}
+@media (max-width: 1100px) {
+  .plat-flow {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .plat-flow li:nth-child(3n + 1) {
+    border-left: 0;
+  }
+  .plat-flow li:nth-child(n + 4) {
+    border-top: 1px solid var(--border-subtle);
+  }
+}
+@media (max-width: 680px) {
+  .plat-flow {
+    grid-template-columns: 1fr;
+  }
+  .plat-flow li {
+    border-left: 0;
+  }
+  .plat-flow li + li {
+    border-top: 1px solid var(--border-subtle);
+  }
+}
+
+/* A link inside a card, above its sample line. */
+.plat-link {
+  margin-top: 4px;
+  font-size: var(--fs-md);
+  color: var(--text-2);
+  text-decoration: underline;
+  text-decoration-color: var(--border-strong);
+  text-underline-offset: 3px;
+  transition: color var(--t-hover) var(--ease);
+}
+.plat-link:hover {
+  color: var(--text);
+  text-decoration-color: var(--text);
+}
+
+.plat-build,
+.plat-trust {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.plat-build a,
+.plat-trust li {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.plat-build a {
+  height: 100%;
+  padding: 20px 22px 22px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  background: var(--surface);
+  transition: border-color var(--t-hover) var(--ease);
+}
+.plat-build a:hover {
+  border-color: var(--border-strong);
+}
+.plat-trust li {
+  padding: 20px 22px 22px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  background: var(--surface);
+}
+.plat-build strong,
+.plat-trust strong {
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+.plat-build span,
+.plat-trust span {
+  font-size: var(--fs-md);
+  line-height: 1.6;
+  color: var(--text-3);
+}
+@media (max-width: 1000px) {
+  .plat-build,
+  .plat-trust {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 640px) {
+  .plat-build,
+  .plat-trust {
+    grid-template-columns: 1fr;
+  }
+}
+
+.plat-editions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.plat-editions article {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 26px 28px 28px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  background: var(--surface);
+}
+.plat-editions h3 {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0;
+  font-size: var(--fs-xl);
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+.plat-editions h3 svg {
+  color: var(--text-3);
+}
+.plat-editions p {
+  margin: 0;
+  font-size: var(--fs-md);
+  line-height: 1.65;
+  color: var(--text-3);
+}
+.plat-editions .plat-link {
+  margin-top: auto;
+  padding-top: 10px;
+  align-self: flex-start;
+}
+@media (max-width: 760px) {
+  .plat-editions {
+    grid-template-columns: 1fr;
+  }
+}
+
+.plat-next {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  padding-bottom: clamp(64px, 9vw, 110px);
+}
+.plat-next-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
 }
