@@ -1,0 +1,35 @@
+{
+  "name": "@issueit/node",
+  "version": "0.1.0",
+  "description": "Send bug reports to Issueit from a Node server: error middleware for Express, Hono and Fastify, with fingerprints and releases set properly.",
+  "keywords": [
+    "issueit",
+    "bug-reports",
+    "error-reporting"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "typescript": "~5.9"
+  }
+}

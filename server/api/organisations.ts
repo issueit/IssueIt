@@ -8,7 +8,7 @@ import { badRequest, conflict, forbidden, notFound } from "../lib/errors";
 import { newId } from "../lib/ids";
 import { storage } from "../lib/storage";
 import { body, type AppEnv } from "../http";
-import { requireOrg, requireOwner, requireUser } from "../auth/session";
+import { requireOwner, requireUser } from "../auth/session";
 import { policySchema } from "../delivery/policy";
 
 const orgName = z.string().trim().min(1, "Enter a name.").max(80);
@@ -183,4 +183,3 @@ async function findInvitation(token: string) {
   return inv;
 }
 
-export { requireOrg };

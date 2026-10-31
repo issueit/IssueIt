@@ -1,0 +1,32 @@
+{
+  "name": "issueit",
+  "version": "0.1.0",
+  "description": "The Issueit command line: watch bugs arrive, forward webhooks to localhost, upload source maps, and keep a project's settings in your repository.",
+  "keywords": [
+    "issueit",
+    "bug-reports",
+    "cli"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "issueit": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "esbuild src/index.ts --bundle --platform=node --format=esm --target=node20 --outfile=dist/index.js && chmod +x dist/index.js",
+    "dev": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.12",
+    "tsx": "^4.23.15",
+    "typescript": "~5.9"
+  }
+}

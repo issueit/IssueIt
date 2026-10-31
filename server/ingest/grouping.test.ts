@@ -66,3 +66,35 @@ describe("scrubbing", () => {
     expect(scrubUrl("/api/me?x=1")).toBe("/api/me?x=…");
   });
 });
+
+describe("a project's own grouping rules", () => {
+  const rules = { titlePatterns: ["order #\\d+"], pathDepth: 2 };
+
+  it("removes what a project asks before comparing titles", () => {
+    expect(normaliseTitle("Order #4821 failed to save", rules)).toBe("failed to save");
+    expect(fingerprintFor({ title: "Order #4821 failed to save" }, rules)).toBe(fingerprintFor({ title: "Order #9933 failed to save" }, rules));
+    // Without the rule they stay separate, because the numbers differ in kind.
+    expect(normaliseTitle("Order #4821 failed to save")).toBe("order failed to save");
+  });
+
+  it("compares only as much of the path as asked", () => {
+    expect(normalisePath("https://a.test/docs/guides/intro", rules)).toBe("a.test/docs/guides");
+    expect(normalisePath("https://a.test/docs/guides/intro")).toBe("a.test/docs/guides/intro");
+  });
+
+  it("can ignore the page entirely, for a bug reported from everywhere", () => {
+    const here = fingerprintFor({ title: "The header menu is broken", pageUrl: "https://a.test/one" }, { ignorePage: true });
+    const there = fingerprintFor({ title: "The header menu is broken", pageUrl: "https://a.test/two/three" }, { ignorePage: true });
+    expect(here).toBe(there);
+    expect(fingerprintFor({ title: "The header menu is broken", pageUrl: "https://a.test/one" })).not.toBe(there);
+  });
+
+  it("ignores a pattern that isn't a valid expression rather than losing the report", () => {
+    expect(() => normaliseTitle("anything", { titlePatterns: ["(("] })).not.toThrow();
+    expect(normaliseTitle("Still grouped", { titlePatterns: ["(("] })).toBe("still grouped");
+  });
+
+  it("leaves a caller's own fingerprint alone, whatever the rules say", () => {
+    expect(fingerprintFor({ title: "Order #1 failed", fingerprint: "checkout-save" }, rules)).toBe(fingerprintFor({ title: "Something else", fingerprint: "checkout-save" }));
+  });
+});

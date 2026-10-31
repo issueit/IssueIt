@@ -1,5 +1,5 @@
 import type { ConsoleEntry, Diagnostics, NetworkEntry, StepEntry } from "../db/schema";
-import { scrubText, scrubUrl } from "../lib/scrub";
+import { compilePatterns, scrubText, scrubUrl, type ExtraPattern } from "../lib/scrub";
 
 /**
  * Cleans what the widget captured before it's stored. Lenient by design: a
@@ -14,16 +14,16 @@ const num = (v: unknown, max: number) => (typeof v === "number" && Number.isFini
 const str = (v: unknown) => (typeof v === "string" ? v : null);
 const list = (v: unknown) => (Array.isArray(v) ? v.slice(-MAX_ENTRIES) : []);
 
-function consoleEntry(raw: any): ConsoleEntry | null {
+function consoleEntry(raw: any, extra: Extra): ConsoleEntry | null {
   const t = num(raw?.t, DAY);
   const message = str(raw?.message);
   const level = ["error", "warn", "info", "log"].includes(raw?.level) ? raw.level : null;
   if (t === null || !message || !level) return null;
   const stack = str(raw?.stack);
-  return { t, level, message: scrubText(message, 1000), ...(stack ? { stack: scrubText(stack, 1500) } : {}) };
+  return { t, level, message: scrubText(message, 1000, extra), ...(stack ? { stack: scrubText(stack, 1500, extra) } : {}) };
 }
 
-function networkEntry(raw: any): NetworkEntry | null {
+function networkEntry(raw: any, extra: Extra): NetworkEntry | null {
   const t = num(raw?.t, DAY);
   const url = str(raw?.url);
   const method = str(raw?.method)?.toUpperCase().slice(0, 10);
@@ -31,24 +31,27 @@ function networkEntry(raw: any): NetworkEntry | null {
   if (t === null || !url || !method || ms === null) return null;
   const status = raw?.status === null ? null : num(raw?.status, 999);
   const error = str(raw?.error);
-  return { t, method, url: scrubUrl(url), status: status ?? null, ms, ...(error ? { error: scrubText(error, 200) } : {}) };
+  return { t, method, url: scrubUrl(url, 500, extra), status: status ?? null, ms, ...(error ? { error: scrubText(error, 200, extra) } : {}) };
 }
 
-function stepEntry(raw: any): StepEntry | null {
+function stepEntry(raw: any, extra: Extra): StepEntry | null {
   const t = num(raw?.t, DAY);
   const label = str(raw?.label);
   const kind = ["click", "navigate", "input"].includes(raw?.kind) ? raw.kind : null;
   if (t === null || !label || !kind) return null;
-  return { t, kind, label: kind === "navigate" ? scrubUrl(label, 300) : scrubText(label, 200) };
+  return { t, kind, label: kind === "navigate" ? scrubUrl(label, 300, extra) : scrubText(label, 200, extra) };
 }
 
-export function cleanDiagnostics(raw: unknown): Diagnostics {
+type Extra = Array<[RegExp, string]>;
+
+export function cleanDiagnostics(raw: unknown, redaction?: ExtraPattern[]): Diagnostics {
   if (!raw || typeof raw !== "object") return {};
+  const extra = compilePatterns(redaction);
   const r = raw as Record<string, unknown>;
   const out: Diagnostics = {};
-  const c = list(r.console).map(consoleEntry).filter((e): e is ConsoleEntry => !!e);
-  const n = list(r.network).map(networkEntry).filter((e): e is NetworkEntry => !!e);
-  const s = list(r.steps).map(stepEntry).filter((e): e is StepEntry => !!e);
+  const c = list(r.console).map((e) => consoleEntry(e, extra)).filter((e): e is ConsoleEntry => !!e);
+  const n = list(r.network).map((e) => networkEntry(e, extra)).filter((e): e is NetworkEntry => !!e);
+  const s = list(r.steps).map((e) => stepEntry(e, extra)).filter((e): e is StepEntry => !!e);
   if (c.length) out.console = c;
   if (n.length) out.network = n;
   if (s.length) out.steps = s;

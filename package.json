@@ -14,10 +14,14 @@
     "start": "node dist/server/index.js",
     "db:generate": "drizzle-kit generate",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "build:mcp": "npm --prefix mcp run build",
+    "build:cli": "npm --prefix cli run build",
+    "build:sdk": "npm --prefix sdk/node run build && npm --prefix sdk/react run build"
   },
   "dependencies": {
     "@hono/node-server": "^1.19.17",
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "drizzle-orm": "^0.45.4",
     "hono": "^4.13.14",
     "nodemailer": "^10.3.1",

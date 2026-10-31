@@ -66,24 +66,6 @@ export const requireUser: MiddlewareHandler<AppEnv> = async (c, next) => {
   await next();
 };
 
-/**
- * Resolves :org from the path and checks the user belongs to it. Every
- * organisation-scoped query must then filter by c.get("orgId").
- */
-export const requireOrg: MiddlewareHandler<AppEnv> = async (c, next) => {
-  const orgId = c.req.param("org");
-  if (!orgId) throw forbidden();
-  const [m] = await db
-    .select({ role: schema.memberships.role })
-    .from(schema.memberships)
-    .where(and(eq(schema.memberships.orgId, orgId), eq(schema.memberships.userId, c.get("user").id)))
-    .limit(1);
-  if (!m) throw forbidden("You aren't a member of this organisation.");
-  c.set("orgId", orgId);
-  c.set("role", m.role);
-  await next();
-};
-
 export const requireOwner: MiddlewareHandler<AppEnv> = async (c, next) => {
   if (c.get("role") !== "owner") throw forbidden("Only organisation owners can do this.");
   await next();

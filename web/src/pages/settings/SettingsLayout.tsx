@@ -19,6 +19,13 @@ const sections = [
     ],
   },
   {
+    heading: "Developers",
+    items: [
+      { to: "tokens", label: "Account tokens" },
+      { to: "audit", label: "Audit log" },
+    ],
+  },
+  {
     heading: "You",
     items: [
       { to: "account", label: "Account" },

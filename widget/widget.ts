@@ -6,7 +6,8 @@
  *
  * Options (data attributes): data-mode="button|inline", data-target (inline
  * container selector), data-source, data-theme="auto|light|dark",
- * data-capture="off" (never record console, requests or steps on this page).
+ * data-capture="off" (never record console, requests or steps on this page),
+ * data-debug="true" (log exactly what would be sent and send nothing).
  * API: Issueit.open(), Issueit.close(), Issueit.identify({ email, name }),
  * Issueit.setMetadata({ … }), Issueit.mount(options).
  *
@@ -158,6 +159,12 @@ type MountOptions = {
   theme?: WidgetConfig["theme"];
   /** Dashboard preview: draws with this config and never sends anything. */
   preview?: { config: Partial<WidgetConfig>; projectName: string; state?: PreviewState; emailUpdates?: boolean };
+  /**
+   * Prints the exact report to the console and sends nothing. For deciding
+   * whether you're happy with what the widget captures before you turn it
+   * loose on real visitors.
+   */
+  debug?: boolean;
 };
 
 type Instance = {
@@ -893,6 +900,23 @@ function mount(opts: MountOptions): Instance {
       }),
     );
     for (const f of files) body.append("attachments", f, f.name);
+
+    if (opts.debug) {
+      // Nothing leaves the page: this is for looking, before you trust it.
+      const report = JSON.parse(String(body.get("report")));
+      console.groupCollapsed("%cIssueit%c would send this report", "font-weight:600", "font-weight:400");
+      console.log("endpoint", `${api}/v1/${opts.project}/reports`);
+      console.log("report", report);
+      if (report.diagnostics) console.log("diagnostics", report.diagnostics);
+      if (files.length) console.log("attachments", files.map((f) => ({ name: f.name, type: f.type, bytes: f.size })));
+      console.log("%cdata-debug is on, so nothing was sent.", "color:#b26a00");
+      console.groupEnd();
+      state = "done";
+      files = [];
+      render();
+      return;
+    }
+
     try {
       const res = await fetch(`${api}/v1/${encodeURIComponent(opts.project)}/reports`, { method: "POST", body });
       const json = await res.json().catch(() => null);
@@ -1014,6 +1038,7 @@ if (scriptEl?.dataset.project) {
       target: d.target ? document.querySelector(d.target) : null,
       source: d.source,
       theme: d.theme as WidgetConfig["theme"] | undefined,
+      debug: d.debug === "true" || d.debug === "",
     });
   };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);

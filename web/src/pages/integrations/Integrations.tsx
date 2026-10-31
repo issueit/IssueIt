@@ -3,7 +3,7 @@ import { Link, NavLink, Outlet, useNavigate, useSearchParams } from "react-route
 import { useQueryClient } from "@tanstack/react-query";
 import { describeError } from "../../lib/api";
 import { relativeTime } from "../../lib/format";
-import { useConnections, useOrgDestinations, useProjects, useProviders } from "../../lib/queries";
+import { useConnections, useOrgDestinations, useOrgQuery, useProjects, useProviders } from "../../lib/queries";
 import { useOrg } from "../../lib/session";
 import type { Destination, ProviderCategory } from "../../lib/types";
 import { BrandIcon } from "../../components/ui/BrandIcon";
@@ -208,6 +208,41 @@ export function DestinationsTable({ destinations, showProject = true, showProvid
   );
 }
 
+type HealthReport = {
+  status: "ok" | "degraded" | "behind";
+  problems: string[];
+  deliveries: { pending: number; retrying: number; oldestWaitingSeconds: number | null };
+};
+
+/**
+ * Whether the outbox is draining. Shown only when it isn't: a banner that
+ * is always there is a banner nobody reads.
+ */
+function PipelineHealth() {
+  const health = useOrgQuery<HealthReport>("health", [], "/health");
+  const data = health.data;
+  if (!data || data.status === "ok" || !data.problems.length) return null;
+  const waiting = data.deliveries.oldestWaitingSeconds;
+  return (
+    <Callout
+      tone={data.status === "behind" ? "danger" : "warning"}
+      title={data.status === "behind" ? "Delivery is behind" : "Delivery needs a look"}
+      action={
+        <Button size="sm" onClick={() => health.refetch()}>
+          Check again
+        </Button>
+      }
+    >
+      <ul className="flex flex-col gap-0.5">
+        {data.problems.map((p) => (
+          <li key={p}>{p}</li>
+        ))}
+      </ul>
+      {waiting ? <div className="hint mt-1">{data.deliveries.pending + data.deliveries.retrying} waiting, the oldest for {Math.round(waiting / 60)} minutes.</div> : null}
+    </Callout>
+  );
+}
+
 export function IntegrationsOverview() {
   const destinations = useOrgDestinations();
   const projects = useProjects();
@@ -234,6 +269,7 @@ export function IntegrationsOverview() {
 
   return (
     <div className="page-body flex flex-col gap-6 max-w-[1180px]">
+      <PipelineHealth />
       <div className="stat-strip">
         <div>
           <div className="stat-strip__label">Active destinations</div>

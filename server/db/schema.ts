@@ -272,6 +272,27 @@ export const defaultEmailSettings: ProjectEmailSettings = {
 
 export const emailsWithDefaults = (e: Partial<ProjectEmailSettings> | null | undefined): ProjectEmailSettings => ({ ...defaultEmailSettings, ...(e ?? {}) });
 
+/**
+ * Project rules that change how reports are handled before they are stored.
+ * Both are previewable in the dashboard against real reports, because a rule
+ * you can't test is a rule nobody trusts.
+ */
+export type ProjectRules = {
+  /** How duplicates are recognised, on top of the built-in normalisation. */
+  grouping?: {
+    /** Regular expressions removed from the title before it is compared. */
+    titlePatterns?: string[];
+    /** Compare titles only, ignoring which page the report came from. */
+    ignorePage?: boolean;
+    /** Compare only the first n path segments, so /docs/a and /docs/b are one page. */
+    pathDepth?: number;
+  };
+  /** What else is removed from captured text, on top of the built-in patterns. */
+  redaction?: {
+    patterns?: Array<{ pattern: string; replacement?: string; label?: string }>;
+  };
+};
+
 export type StoredLogo = { storageKey: string; contentType: string; sizeBytes: number; hash: string };
 
 export const projects = pgTable(
@@ -291,6 +312,8 @@ export const projects = pgTable(
     logo: jsonb("logo").$type<StoredLogo>(),
     /** Reports with the same fingerprint join the open report that came first. */
     groupDuplicates: boolean("group_duplicates").notNull().default(true),
+    /** Grouping and redaction rules of this project's own. */
+    rules: jsonb("rules").$type<ProjectRules>().notNull().default({}),
     reportSeq: integer("report_seq").notNull().default(0),
     lastReportAt: ts("last_report_at"),
     createdAt: created(),
@@ -323,6 +346,106 @@ export const apiKeys = pgTable(
   (t) => [index("api_keys_project_idx").on(t.projectId)],
 );
 
+/* -------------------------------------------------- account tokens */
+
+/**
+ * What an account token may do. Reads and writes are separate, so an agent
+ * can be given a token that reads bugs but can never change where reports go.
+ */
+export const scopes = [
+  "reports:read",
+  "reports:write",
+  "projects:read",
+  "projects:write",
+  "destinations:read",
+  "destinations:write",
+  "connections:read",
+  "connections:write",
+  "deliveries:read",
+  "deliveries:write",
+  "analytics:read",
+  "keys:write",
+  "org:read",
+  "org:write",
+] as const;
+export type Scope = (typeof scopes)[number];
+
+/** Scopes only an owner may hold: they let other people in, or mint ingest keys. */
+export const ownerOnlyScopes: readonly Scope[] = ["org:write", "keys:write"];
+
+/** A sensible set for a coding agent: read the bugs, fix them, mark them done. */
+export const agentScopes: readonly Scope[] = [
+  "reports:read",
+  "reports:write",
+  "projects:read",
+  "destinations:read",
+  "connections:read",
+  "deliveries:read",
+  "analytics:read",
+  "org:read",
+];
+
+/**
+ * A token for the management API, used by the MCP server, the CLI and CI.
+ * Unlike an ingest key it is organisation-wide, carries scopes, and is shown
+ * once: there is no encrypted copy to reveal later.
+ */
+export const accessTokens = pgTable(
+  "access_tokens",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id")
+      .notNull()
+      .references(() => organisations.id, { onDelete: "cascade" }),
+    /** Whose authority the token carries. Its role is read fresh on every request. */
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    /** Visible start of the token, e.g. "ak_live_a1b2", used to tell tokens apart. */
+    prefix: text("prefix").notNull(),
+    tokenHash: text("token_hash").notNull().unique(),
+    scopes: text("scopes").array().$type<Scope[]>().notNull(),
+    /** Null means every project in the organisation; otherwise a fence. */
+    projectIds: text("project_ids").array(),
+    lastUsedAt: ts("last_used_at"),
+    lastUsedIp: text("last_used_ip"),
+    expiresAt: ts("expires_at"),
+    revokedAt: ts("revoked_at"),
+    createdAt: created(),
+  },
+  (t) => [index("access_tokens_org_idx").on(t.orgId), index("access_tokens_user_idx").on(t.userId)],
+);
+
+/**
+ * Who changed what. Written for every state-changing request, by a person in
+ * the dashboard or by a token, so a destination that starts misbehaving can
+ * be traced back to the change that did it.
+ */
+export const auditEvents = pgTable(
+  "audit_events",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id")
+      .notNull()
+      .references(() => organisations.id, { onDelete: "cascade" }),
+    userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+    tokenId: text("token_id").references(() => accessTokens.id, { onDelete: "set null" }),
+    /** Who it was, kept as text so the trail still reads after someone leaves. */
+    actor: text("actor").notNull(),
+    /** How they were authenticated. */
+    via: text("via").$type<"session" | "token">().notNull(),
+    /** Verb and subject, e.g. "destination.update". */
+    action: text("action").notNull(),
+    /** What it acted on: an id, or a path when there is no single subject. */
+    target: text("target"),
+    details: jsonb("details").$type<Record<string, unknown>>().notNull().default({}),
+    ip: text("ip"),
+    createdAt: created(),
+  },
+  (t) => [index("audit_events_org_created_idx").on(t.orgId, t.createdAt)],
+);
+
 /* --------------------------------------------------------------- reports */
 
 export const reportStatuses = ["new", "investigating", "resolved", "closed"] as const;
@@ -342,7 +465,14 @@ export type ReportContext = {
   referrer?: string;
 };
 
-export type ConsoleEntry = { t: number; level: "error" | "warn" | "info" | "log"; message: string; stack?: string };
+export type ConsoleEntry = {
+  t: number;
+  level: "error" | "warn" | "info" | "log";
+  message: string;
+  stack?: string;
+  /** The same stack through the release's source maps. Added when read, never stored. */
+  original?: string;
+};
 export type NetworkEntry = { t: number; method: string; url: string; status: number | null; ms: number; error?: string };
 export type StepEntry = { t: number; kind: "click" | "navigate" | "input"; label: string };
 
@@ -385,6 +515,10 @@ export const reports = pgTable(
     duplicateCount: integer("duplicate_count").notNull().default(0),
     lastSeenAt: ts("last_seen_at"),
     resolvedAt: ts("resolved_at"),
+    /** Which build this happened on, e.g. "2.3.1" or a commit. Matches a release for symbolication. */
+    release: text("release"),
+    /** The caller's own key for this report, so a retried submission doesn't file it twice. */
+    idempotencyKey: text("idempotency_key"),
     /** Keyed hash of the submitter's IP, for abuse throttling only. */
     ipHash: text("ip_hash"),
     viaKeyId: text("via_key_id"),
@@ -398,6 +532,7 @@ export const reports = pgTable(
     index("reports_fingerprint_idx").on(t.projectId, t.fingerprint),
     index("reports_group_idx").on(t.groupId),
     index("reports_ip_idx").on(t.projectId, t.ipHash, t.createdAt),
+    uniqueIndex("reports_idempotency_idx").on(t.projectId, t.idempotencyKey),
   ],
 );
 
@@ -421,6 +556,88 @@ export const attachments = pgTable(
     createdAt: created(),
   },
   (t) => [index("attachments_report_idx").on(t.reportId), index("attachments_org_idx").on(t.orgId)],
+);
+
+/* -------------------------------------------------------------- releases */
+
+/**
+ * A build of a project. Reports name the release they happened on, and a
+ * release carries the source maps that turn a minified stack into a file and
+ * a line someone can open.
+ */
+export const releases = pgTable(
+  "releases",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id")
+      .notNull()
+      .references(() => organisations.id, { onDelete: "cascade" }),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    /** What the app calls this build: a version, a tag or a commit. */
+    version: text("version").notNull(),
+    /** Which bundle, when one release ships several, e.g. "web" and "admin". */
+    dist: text("dist"),
+    commit: text("commit"),
+    /** Where to read the code: a compare link or a commit page. */
+    url: text("url"),
+    createdAt: created(),
+  },
+  (t) => [uniqueIndex("releases_version_idx").on(t.projectId, t.version, t.dist), index("releases_project_idx").on(t.projectId)],
+);
+
+/**
+ * One uploaded source map, found by the address of the file it belongs to.
+ * Matching is by filename, so a map uploaded for "/assets/app-8fd2.js" is
+ * used for a stack frame in that file whatever host served it.
+ */
+export const sourceMaps = pgTable(
+  "source_maps",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id")
+      .notNull()
+      .references(() => organisations.id, { onDelete: "cascade" }),
+    releaseId: text("release_id")
+      .notNull()
+      .references(() => releases.id, { onDelete: "cascade" }),
+    /** The built file this maps, as the browser names it, e.g. "assets/app-8fd2.js". */
+    file: text("file").notNull(),
+    storageKey: text("storage_key").notNull(),
+    sizeBytes: bigint("size_bytes", { mode: "number" }).notNull(),
+    createdAt: created(),
+  },
+  (t) => [uniqueIndex("source_maps_file_idx").on(t.releaseId, t.file)],
+);
+
+/* ---------------------------------------------------------- device login */
+
+/**
+ * The command line's sign-in: it shows a short code, the person approves it
+ * in the dashboard, and the token is handed back on the next poll. Nothing
+ * secret is ever typed into a terminal.
+ */
+export const deviceCodes = pgTable(
+  "device_codes",
+  {
+    /** sha256 of the secret the client polls with. */
+    id: text("id").primaryKey(),
+    /** The short code a person reads out and types in, e.g. "WDJB-MJHT". */
+    userCode: text("user_code").notNull().unique(),
+    name: text("name").notNull(),
+    scopes: text("scopes").array().$type<Scope[]>().notNull(),
+    status: text("status").$type<"pending" | "approved" | "denied">().notNull().default("pending"),
+    /** Set once someone approves it. */
+    userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
+    orgId: text("org_id").references(() => organisations.id, { onDelete: "cascade" }),
+    /** The token minted on approval, handed over once and then forgotten. */
+    tokenSecret: text("token_secret"),
+    approvedAt: ts("approved_at"),
+    expiresAt: ts("expires_at").notNull(),
+    createdAt: created(),
+  },
+  (t) => [index("device_codes_expiry_idx").on(t.expiresAt)],
 );
 
 /* ---------------------------------------------------------- integrations */

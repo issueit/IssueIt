@@ -7,6 +7,7 @@ import { DialogHost } from "./components/ui/Dialog";
 import { Shell } from "./components/app/Shell";
 import { CreateOrganisation, Login, Signup } from "./pages/auth/Auth";
 import { InvitePage } from "./pages/auth/Invite";
+import { DevicePage } from "./pages/auth/Device";
 import { InboxPage } from "./pages/inbox/Inbox";
 import { ProjectsPage } from "./pages/projects/Projects";
 import { ProjectLayout } from "./pages/projects/ProjectLayout";
@@ -14,6 +15,8 @@ import { ProjectOverview } from "./pages/projects/Overview";
 import { ProjectReports } from "./pages/projects/Reports";
 import { ProjectIntegrations } from "./pages/projects/Integrations";
 import { ProjectKeys } from "./pages/projects/Keys";
+import { ProjectRules } from "./pages/projects/Rules";
+import { ProjectReleases } from "./pages/projects/Releases";
 import { WidgetStudio } from "./pages/projects/WidgetStudio";
 import { WidgetHome } from "./pages/projects/WidgetHome";
 import { ProjectSettings } from "./pages/projects/ProjectSettings";
@@ -26,6 +29,8 @@ import { AccountSettings } from "./pages/settings/Account";
 import { AppearanceSettings } from "./pages/settings/AppearanceSettings";
 import { DashboardSettings } from "./pages/settings/DashboardSettings";
 import { DeliverySettings } from "./pages/settings/DeliverySettings";
+import { TokensSettings } from "./pages/settings/Tokens";
+import { AuditSettings } from "./pages/settings/Audit";
 import { IntegrationsDirectory, IntegrationsLayout, IntegrationsLog, IntegrationsOverview } from "./pages/integrations/Integrations";
 import { IntegrationProvider } from "./pages/integrations/Provider";
 import { TrelloReturn } from "./pages/TrelloReturn";
@@ -73,6 +78,7 @@ export function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
         <Route path="/invite/:token" element={<InvitePage />} />
+        <Route path="/device" element={<DevicePage />} />
         <Route
           path="/docs"
           element={
@@ -92,6 +98,8 @@ export function App() {
               <Route path="reports/:reportId?" element={<ProjectReports />} />
               <Route path="integrations" element={<ProjectIntegrations />} />
               <Route path="keys" element={<ProjectKeys />} />
+              <Route path="rules" element={<ProjectRules />} />
+              <Route path="releases" element={<ProjectReleases />} />
               <Route path="widget" element={<WidgetStudio />} />
               <Route path="settings" element={<ProjectSettings />} />
             </Route>
@@ -110,6 +118,8 @@ export function App() {
               <Route path="connections" element={<ConnectionsSettings />} />
               <Route path="usage" element={<UsageSettings />} />
               <Route path="delivery" element={<DeliverySettings />} />
+              <Route path="tokens" element={<TokensSettings />} />
+              <Route path="audit" element={<AuditSettings />} />
               <Route path="account" element={<AccountSettings />} />
               <Route path="appearance" element={<AppearanceSettings />} />
               <Route path="dashboard" element={<DashboardSettings />} />

@@ -18,5 +18,5 @@
     "baseUrl": ".",
     "paths": { "@/*": ["web/src/*"], "@shared/*": ["shared/*"] }
   },
-  "include": ["server", "web/src", "widget", "shared"]
+  "include": ["server", "web/src", "widget", "shared", "mcp/src", "cli/src"]
 }

@@ -62,6 +62,8 @@ export function ProjectLayout() {
               { to: `${base}/reports`, label: "Reports" },
               { to: `${base}/integrations`, label: "Integrations" },
               { to: `${base}/keys`, label: "API keys" },
+              { to: `${base}/rules`, label: "Rules" },
+              { to: `${base}/releases`, label: "Releases" },
               { to: `${base}/widget`, label: "Widget" },
               { to: `${base}/settings`, label: "Settings" },
             ]}

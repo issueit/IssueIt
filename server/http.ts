@@ -4,8 +4,17 @@ import { z } from "zod";
 import { config } from "./config";
 import { badRequest } from "./lib/errors";
 import type { schema } from "./db";
+import type { Scope } from "./db/schema";
 
 export type SessionUser = typeof schema.users.$inferSelect;
+
+/** An account token, when the request carried one instead of a session cookie. */
+export type RequestToken = {
+  id: string;
+  scopes: Scope[];
+  /** Null means every project in the organisation. */
+  projectIds: string[] | null;
+};
 
 export type AppEnv = {
   Variables: {
@@ -13,6 +22,10 @@ export type AppEnv = {
     sessionId: string;
     orgId: string;
     role: "owner" | "member";
+    /** How the request was authenticated. */
+    via: "session" | "token";
+    /** Set only for token requests. Its absence means a person in the dashboard. */
+    token?: RequestToken;
   };
 };
 

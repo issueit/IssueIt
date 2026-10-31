@@ -9,6 +9,7 @@ import { AppError, badRequest, notFound } from "../lib/errors";
 import { newId } from "../lib/ids";
 import { storage } from "../lib/storage";
 import { body, type AppEnv } from "../http";
+import { assertProject, projectFence } from "../auth/tokens";
 import { getProvider } from "../integrations";
 import { IntegrationError } from "../integrations/http";
 import { sniff } from "../ingest/files";
@@ -17,6 +18,7 @@ import { issueitMailAvailable, sendTestEmail } from "../mail/outbox";
 /** Loads a project and checks it belongs to the organisation in the path. Never trust the id alone. */
 export async function loadProject(c: Context<AppEnv>, id = c.req.param("project")) {
   if (!id) throw notFound("That project");
+  assertProject(c, id);
   const project = await db.query.projects.findFirst({ where: and(eq(schema.projects.id, id), eq(schema.projects.orgId, c.get("orgId"))) });
   if (!project) throw notFound("That project");
   return project;
@@ -165,6 +167,8 @@ function newSecretKey() {
 export const projectRoutes = new Hono<AppEnv>()
   .get("/", async (c) => {
     const orgId = c.get("orgId");
+    const allowed = projectFence(c);
+    const fence = !allowed ? sql`` : allowed.length ? sql`and p.id in (${sql.join(allowed.map((id) => sql`${id}`), sql`, `)})` : sql`and false`;
     const rows = await db.execute<{
       id: string;
       name: string;
@@ -187,7 +191,7 @@ export const projectRoutes = new Hono<AppEnv>()
                and dl.created_at > now() - interval '7 days'
                and not exists (select 1 from deliveries ok where ok.destination_id = d.id and ok.status = 'delivered' and ok.created_at > dl.created_at)))
         ) as failing_count
-      from projects p where p.org_id = ${orgId} order by p.created_at`);
+      from projects p where p.org_id = ${orgId} ${fence} order by p.created_at`);
     return c.json({
       projects: rows.map((r) => ({
         id: r.id,

@@ -14,7 +14,9 @@ const sections = [
   ["form", "Hosted form"],
   ["api", "REST API"],
   ["keys", "Keys and security"],
+  ["agents", "Agents and tooling"],
   ["duplicates", "Duplicates"],
+  ["releases", "Releases and source maps"],
   ["reporters", "Emails to reporters"],
   ["integrations", "Integrations"],
   ["webhooks", "Webhooks"],
@@ -289,6 +291,13 @@ document.querySelector("#report-bug").onclick = () => Issueit.open();`}
                 </>,
               ],
               [
+                <C>release</C>,
+                <>
+                  Which build this happened on, so a minified stack can be read through that build's{" "}
+                  <a href="#releases" className="underline underline-offset-2">source maps</a>.
+                </>,
+              ],
+              [
                 <C>attachments</C>,
                 <>
                   Up to 5 files of 10 MB: <C>{`[{ filename, data }]`}</C> with base64 data.
@@ -327,6 +336,26 @@ document.querySelector("#report-bug").onclick = () => Issueit.open();`}
           />
           <P>Public requests are limited per visitor and per project. Requests with a secret key have their own, higher limit.</P>
 
+          <P>
+            <strong className="text-text font-medium">Sending the same report twice.</strong> Send an <C>Idempotency-Key</C> header (or an <C>idempotency_key</C> field) and a repeat files
+            nothing new: you get the first report's id back, with <C>replayed: true</C> and an <C>idempotent-replay</C> header. Safe for a queue that delivers at least once, or a retry after a
+            timeout.
+          </P>
+          <P>
+            <strong className="text-text font-medium">Checking before you commit.</strong> Add <C>?dry_run=1</C> and Issueit validates the report, scrubs it, works out its fingerprint and tells
+            you which destinations would receive it and whether it would join an existing group — then stores nothing. It's the way to test a fingerprint or a routing rule without filling your
+            inbox with test bugs.
+          </P>
+          <CodeBlock
+            code={`curl -X POST "${origin}/v1/prj_abc123/reports?dry_run=1" \\
+  -H "Content-Type: application/json" \\
+  -d '{"title": "Order #4821 failed to save", "page_url": "https://shop.example.com/orders/4821/edit"}'
+
+# {"dry_run": true, "fingerprint": "t:…", "duplicate_of": {"number": 118, …},
+#  "destinations": [{"name": "acme/web", "would_deliver": false, "why": "…"}], …}`}
+            what="example"
+          />
+
           <H2 id="keys">Keys and security</H2>
           <P>
             The <strong className="text-text font-medium">project id</strong> is public. It only says which project a report is for; it can't read anything. Limit which sites may use it under the
@@ -335,6 +364,95 @@ document.querySelector("#report-bug").onclick = () => Issueit.open();`}
           <P>
             <strong className="text-text font-medium">Secret keys</strong> (<C>sk_live_…</C>) are for servers. Send one as <C>Authorization: Bearer sk_live_…</C>. Requests from a browser with a secret
             key are refused, because a key in a web page is a leaked key. Rotate or revoke keys under the project's API keys tab.
+          </P>
+          <P>
+            <strong className="text-text font-medium">Short-lived tokens</strong> (<C>it_…</C>) let a single-page app send reports while the project stays closed to everyone else. Your server
+            mints one with its secret key and hands it to the browser; it lasts up to an hour and only works for that project.
+          </P>
+          <CodeBlock
+            code={`// On your server, for a signed-in visitor:
+const res = await fetch("${origin}/v1/prj_abc123/token?seconds=600", {
+  method: "POST",
+  headers: { authorization: \`Bearer \${process.env.ISSUEIT_SECRET_KEY}\` },
+});
+const { token } = await res.json();   // give this to the page`}
+            what="example"
+          />
+          <div className="h-3" />
+          <P>
+            <strong className="text-text font-medium">Account tokens</strong> (<C>ak_live_…</C>) are different again: they reach the management API — the same one the dashboard uses — and carry
+            scopes saying what they may do. Create them under Settings → Account tokens. A token can be fenced to some projects, is shown once, and can never mint or revoke another token.
+          </P>
+
+          <H2 id="agents">Agents and tooling</H2>
+          <P>
+            A bug report carries the console errors, requests and steps captured in the moments before it was sent, which is usually enough to find the fault in the code. The Issueit MCP server hands
+            that to a coding agent, so it can read a report, fix it and mark it resolved.
+          </P>
+          <P>
+            Create an account token under Settings → Account tokens, choose what it may do, then add it to your agent. The agent preset can read reports, resolve them, and look at everything else
+            without changing it.
+          </P>
+          <CodeBlock code={`claude mcp add issueit --env ISSUEIT_TOKEN=ak_live_… -- npx -y @issueit/mcp`} what="command" />
+          <div className="h-3" />
+          <P>
+            Self-hosting? Add <C>--env ISSUEIT_URL={origin}</C>. Issueit also speaks MCP over HTTP at <C>POST {origin}/mcp</C> with the same token as a bearer header, for clients that connect to a
+            remote server rather than running one.
+          </P>
+          <Table
+            head={["Tool", "What it does"]}
+            rows={[
+              [<C>get_report</C>, "One report in full: what they said, the console errors with stacks, the requests the page made, the clicks, the attachments, and where it was delivered."],
+              [<C>search_reports</C>, "Find reports by project, status, priority, text, date or failed delivery."],
+              [<C>resolve_report</C>, "Mark a bug fixed once the fix is shipped, which also emails everyone who asked to hear."],
+              [<C>setup_project</C>, "Create a project and get the snippet for your framework, in one call."],
+              [<C>diagnose_install</C>, "Check a project before launch: has anything arrived, is anyone being told, is delivery healthy."],
+              [<C>create_destination</C>, <>Point a project at a tracker, a channel or a webhook, then <C>test_destination</C> to prove it works.</>],
+              [<C>list_deliveries</C>, <>Why a report never reached the tracker, and <C>retry_delivery</C> to try again.</>],
+            ]}
+          />
+          <P>
+            The whole management API is described at <C>{origin}/openapi.json</C>, generated from the router itself, with the scope each endpoint needs. Anything a token lacks comes back as a plain
+            refusal naming the scope.
+          </P>
+          <P>
+            Every change, by a person or a token, is recorded under Settings → Audit log: who, what, which token and from where.
+          </P>
+
+          <h3 className="text-md font-semibold mt-7 mb-2">The command line</h3>
+          <CodeBlock code={`npx issueit login\nnpx issueit init          # creates the project, writes .issueit.json, prints the snippet\nnpx issueit tail          # watch reports arrive`} what="commands" />
+          <div className="h-3" />
+          <P>
+            <C>issueit login</C> shows a code you approve in the dashboard, so no token is ever typed into a terminal. In CI, set <C>ISSUEIT_TOKEN</C> instead and skip signing in.
+          </P>
+          <Table
+            head={["Command", "What it does"]}
+            rows={[
+              [<C>issueit ls</C>, <>List reports. <C>issueit show 14</C> prints one in full, with its console errors and steps.</>],
+              [<C>issueit tail</C>, "Watch reports arrive, one line each."],
+              [
+                <C>issueit listen</C>,
+                <>
+                  Forwards reports to a URL on your machine, signed exactly as a real webhook: <C>--forward http://localhost:3000/hooks</C>. Build a receiver without deploying it.
+                </>,
+              ],
+              [<C>issueit file "…"</C>, "File a bug from a failing test or a git hook. A description can be piped in."],
+              [<C>issueit doctor</C>, "Checks the project: has anything arrived, is anyone being told, is delivery healthy."],
+              [<C>issueit health</C>, "Queue depth and failures. Exits non-zero when delivery is behind, so CI can fail on it."],
+            ]}
+          />
+
+          <h3 className="text-md font-semibold mt-7 mb-2">Settings in your repository</h3>
+          <P>
+            <C>issueit pull</C> writes a project's settings — widget, allowed sites, rules, destinations — to a JSON file with no ids in it. Commit it, review changes in a pull request, and{" "}
+            <C>issueit push</C> applies it. Destinations are matched by name and connections by account, so one file works for staging and production.
+          </P>
+          <CodeBlock code={`issueit pull                      # write issueit.config.json\nissueit push --dry-run            # show what would change\nissueit push --prune              # apply, removing what the file doesn't mention`} what="commands" />
+
+          <h3 className="text-md font-semibold mt-7 mb-2">Watching the pipeline</h3>
+          <P>
+            <C>GET /api/orgs/current/health</C> answers the question an alert should ask: not "is the server up" but "how old is the oldest thing still waiting". It returns{" "}
+            <C>ok</C>, <C>degraded</C> or <C>behind</C>, with the reasons. Set <C>METRICS_TOKEN</C> and <C>{`${origin}/metrics`}</C> serves the same in Prometheus format for the whole install.
           </P>
 
           <H2 id="duplicates">Duplicates</H2>
@@ -346,6 +464,29 @@ document.querySelector("#report-bug").onclick = () => Issueit.open();`}
             The first report is delivered as usual. As more join it, GitHub, GitLab, Linear and Jira issues get a comment at 2, 3, 5, 10, 25, 50 and 100 reports and so on, and webhooks can subscribe
             to <C>report.duplicate</C>. Once the first report is resolved or closed, the next match starts a new group, so a bug that comes back is noticed. Grouping can be turned off in the
             project's settings, and any report can be separated from its group or added to another.
+          </P>
+
+          <P>
+            A project's <strong className="text-text font-medium">Rules</strong> tab changes how duplicates are recognised: patterns removed from the title before comparing (so{" "}
+            <C>order #\d+</C> stops two orders failing the same way counting as two bugs), comparing only the first few path segments, or ignoring the page entirely. The same tab adds your own
+            redaction patterns on top of the built-in ones. Both are tried against this project's last hundred reports before you save them, so you can see exactly what would merge and what
+            would be removed.
+          </P>
+
+          <H2 id="releases">Releases and source maps</H2>
+          <P>
+            A minified stack is no use to anyone. Tell Issueit which build a report came from and give it that build's source maps, and the stack is read back into your own files when someone
+            opens the report — so maps uploaded after a crash still help.
+          </P>
+          <CodeBlock code={`npx issueit sourcemaps upload dist --release "$GIT_SHA" --prefix assets`} what="command" />
+          <div className="h-3" />
+          <P>
+            <C>--prefix</C> is the path the browser sees, so <C>dist/app.js</C> served at <C>/assets/app.js</C> needs <C>--prefix assets</C>. Then send the same value as <C>release</C> with
+            every report. Uploading the same file again replaces it, so a deploy that runs twice is harmless.
+          </P>
+          <P>
+            A report's console entries then carry both: <C>stack</C> as the browser saw it, and <C>original</C> read through the maps. Nothing is thrown away, in case a map turns out to be the
+            wrong one.
           </P>
 
           <H2 id="reporters">Emails to reporters</H2>

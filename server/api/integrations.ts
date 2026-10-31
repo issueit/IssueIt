@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { and, desc, eq, sql, type SQL } from "drizzle-orm";
+import { and, desc, eq, inArray, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "../db";
 import { priorities, webhookEvents, type RoutingRule } from "../db/schema";
@@ -17,6 +17,7 @@ import { attempt } from "../delivery/worker";
 import { eventEnvelope, testReport } from "../delivery/payload";
 import { defaultPolicy, effectivePolicy, policySchema, shapeReport } from "../delivery/policy";
 import { loadProject } from "./projects";
+import { fenced, projectFence } from "../auth/tokens";
 
 /** Turns a provider failure into a 422 the dashboard can show beside the form. */
 function asAppError(err: unknown): never {
@@ -193,10 +194,14 @@ async function loadDestination(projectId: string, id: string) {
   return d;
 }
 
-/** Destinations with their delivery counts and connection, for one project or the whole organisation. */
-async function destinationsWithStats(orgId: string, projectId?: string) {
+/**
+ * Destinations with their delivery counts and connection. `projects` limits
+ * them to one project, or to the projects a token may see; null means all.
+ */
+async function destinationsWithStats(orgId: string, limitTo?: string[] | null) {
+  const only = limitTo ? (limitTo.length ? inArray(schema.destinations.projectId, limitTo) : sql`false`) : undefined;
   const rows = await db.query.destinations.findMany({
-    where: projectId ? eq(schema.destinations.projectId, projectId) : eq(schema.destinations.orgId, orgId),
+    where: and(eq(schema.destinations.orgId, orgId), only),
     orderBy: schema.destinations.createdAt,
   });
   const stats = await db.execute<{
@@ -221,7 +226,8 @@ async function destinationsWithStats(orgId: string, projectId?: string) {
       l.status as last_status, l.updated_at as last_at, l.last_error
     from destinations d
     left join lateral (select status, updated_at, last_error from deliveries x where x.destination_id = d.id order by x.created_at desc limit 1) l on true
-    where ${projectId ? sql`d.project_id = ${projectId}` : sql`d.org_id = ${orgId}`}`);
+    where d.org_id = ${orgId}
+      ${!limitTo ? sql`` : limitTo.length ? sql`and d.project_id in (${sql.join(limitTo.map((id) => sql`${id}`), sql`, `)})` : sql`and false`}`);
   const byId = new Map(stats.map((s) => [s.destination_id, s]));
   const connections = await db.query.connections.findMany({ where: eq(schema.connections.orgId, orgId) });
   const connById = new Map(connections.map((x) => [x.id, x]));
@@ -251,7 +257,7 @@ async function destinationsWithStats(orgId: string, projectId?: string) {
 }
 
 /** Every destination in the organisation, for the Integrations page. */
-export const orgDestinationRoutes = new Hono<AppEnv>().get("/", async (c) => c.json({ destinations: await destinationsWithStats(c.get("orgId")) }));
+export const orgDestinationRoutes = new Hono<AppEnv>().get("/", async (c) => c.json({ destinations: await destinationsWithStats(c.get("orgId"), projectFence(c)) }));
 
 /** The built-in delivery policy and the organisation's own defaults on top of it. */
 export const policyRoutes = new Hono<AppEnv>().get("/", async (c) => {
@@ -262,7 +268,7 @@ export const policyRoutes = new Hono<AppEnv>().get("/", async (c) => {
 export const destinationRoutes = new Hono<AppEnv>()
   .get("/", async (c) => {
     const project = await loadProject(c);
-    return c.json({ destinations: await destinationsWithStats(c.get("orgId"), project.id) });
+    return c.json({ destinations: await destinationsWithStats(c.get("orgId"), [project.id]) });
   })
   .post("/", async (c) => {
     const project = await loadProject(c);
@@ -416,6 +422,8 @@ export const deliveryRoutes = new Hono<AppEnv>()
     const q = parse(deliveryQuery, c.req.query());
     const dl = schema.deliveries;
     const where: SQL[] = [eq(dl.orgId, c.get("orgId"))];
+    const fence = fenced(c, dl.projectId);
+    if (fence) where.push(fence);
     if (q.project) where.push(eq(dl.projectId, q.project));
     if (q.destination) where.push(eq(dl.destinationId, q.destination));
     if (q.status) where.push(eq(dl.status, q.status));
@@ -457,7 +465,9 @@ export const deliveryRoutes = new Hono<AppEnv>()
   })
   /** One delivery with its attempt history and, for webhooks, the exact body sent. */
   .get("/:id", async (c) => {
-    const row = await db.query.deliveries.findFirst({ where: and(eq(schema.deliveries.id, c.req.param("id")), eq(schema.deliveries.orgId, c.get("orgId"))) });
+    const row = await db.query.deliveries.findFirst({
+      where: and(eq(schema.deliveries.id, c.req.param("id")), eq(schema.deliveries.orgId, c.get("orgId")), fenced(c, schema.deliveries.projectId)),
+    });
     if (!row) throw notFound("That delivery");
     const destination = await db.query.destinations.findFirst({ where: eq(schema.destinations.id, row.destinationId), columns: { name: true, provider: true } });
     const report = row.reportId ? await db.query.reports.findFirst({ where: eq(schema.reports.id, row.reportId), columns: { title: true, number: true } }) : null;
@@ -493,10 +503,12 @@ export const deliveryRoutes = new Hono<AppEnv>()
   /** Queues another attempt for every failed delivery that matches, e.g. after fixing a destination. */
   .post("/retry-failed", async (c) => {
     const input = await body(c, z.object({ project: z.string().optional(), destination: z.string().optional(), provider: z.string().optional() }));
+    const allowed = projectFence(c);
     const rows = await db.execute<{ id: string }>(sql`
       update deliveries x set status = 'pending', attempts = 0, next_attempt_at = now(), last_error = null, updated_at = now()
       from destinations d
       where d.id = x.destination_id and x.org_id = ${c.get("orgId")} and x.status = 'failed' and not x.is_test
+        ${!allowed ? sql`` : allowed.length ? sql`and x.project_id in (${sql.join(allowed.map((id) => sql`${id}`), sql`, `)})` : sql`and false`}
         ${input.project ? sql`and x.project_id = ${input.project}` : sql``}
         ${input.destination ? sql`and x.destination_id = ${input.destination}` : sql``}
         ${input.provider ? sql`and d.provider = ${input.provider}` : sql``}
@@ -512,7 +524,13 @@ export const deliveryRoutes = new Hono<AppEnv>()
       .update(schema.deliveries)
       .set({ status: "pending", attempts: 0, nextAttemptAt: new Date(), lastError: null, updatedAt: new Date() })
       .where(
-        and(eq(schema.deliveries.id, c.req.param("id")), eq(schema.deliveries.orgId, c.get("orgId")), sql`${schema.deliveries.status} in ('failed', 'retrying')`, eq(schema.deliveries.isTest, false)),
+        and(
+          eq(schema.deliveries.id, c.req.param("id")),
+          eq(schema.deliveries.orgId, c.get("orgId")),
+          fenced(c, schema.deliveries.projectId),
+          sql`${schema.deliveries.status} in ('failed', 'retrying')`,
+          eq(schema.deliveries.isTest, false),
+        ),
       )
       .returning();
     if (!row) throw notFound("That delivery");

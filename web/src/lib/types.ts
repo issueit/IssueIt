@@ -120,8 +120,16 @@ export type Project = {
   widget: WidgetConfig;
   emails: ProjectEmailSettings;
   groupDuplicates: boolean;
+  /** This project's own grouping and redaction rules. */
+  rules: ProjectRules;
   lastReportAt: string | null;
   createdAt: string;
+};
+
+/** Grouping and redaction rules, both previewable before they are saved. */
+export type ProjectRules = {
+  grouping?: { titlePatterns?: string[]; ignorePage?: boolean; pathDepth?: number };
+  redaction?: { patterns?: Array<{ pattern: string; replacement?: string; label?: string }> };
 };
 
 export type ProjectLinks = { endpoint: string; formUrl: string; widgetUrl: string; docsUrl: string };

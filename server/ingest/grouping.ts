@@ -1,4 +1,7 @@
 import { sha256 } from "../lib/crypto";
+import type { ProjectRules } from "../db/schema";
+
+export type GroupingRules = NonNullable<ProjectRules["grouping"]>;
 
 /**
  * Duplicate grouping. Each report gets a fingerprint; a report whose
@@ -13,8 +16,18 @@ import { sha256 } from "../lib/crypto";
  * matches "error #77 on save". Three-digit HTTP status codes stay: a 500 and a
  * 404 are different bugs.
  */
-export function normaliseTitle(title: string): string {
-  return title
+export function normaliseTitle(title: string, rules?: GroupingRules): string {
+  let working = title;
+  // A project's own patterns are removed first, so a build id or a customer
+  // name in the title doesn't stop two reports of one bug from matching.
+  for (const pattern of rules?.titlePatterns?.slice(0, 20) ?? []) {
+    try {
+      working = working.replace(new RegExp(pattern, "gi"), " ");
+    } catch {
+      // Invalid patterns are refused when saved; ignored here.
+    }
+  }
+  return working
     .toLowerCase()
     .normalize("NFKD")
     .replace(/[\u0300-\u036f]/g, "")
@@ -26,7 +39,7 @@ export function normaliseTitle(title: string): string {
 }
 
 /** The page without its query, hash or ids: /orders/8812/edit and /orders/91/edit are the same page. */
-export function normalisePath(pageUrl: string | null | undefined): string {
+export function normalisePath(pageUrl: string | null | undefined, rules?: GroupingRules): string {
   if (!pageUrl) return "";
   let url: URL;
   try {
@@ -34,10 +47,12 @@ export function normalisePath(pageUrl: string | null | undefined): string {
   } catch {
     return "";
   }
-  const segments = url.pathname
+  let segments = url.pathname
     .split("/")
     .filter(Boolean)
     .map((s) => (/^\d+$/.test(s) || /^[0-9a-f-]{16,}$/i.test(s) || /^[A-Za-z0-9_-]{20,}$/.test(s) ? ":id" : s.toLowerCase()));
+  // Shallower comparison, so /docs/a and /docs/b count as one page.
+  if (rules?.pathDepth && rules.pathDepth > 0) segments = segments.slice(0, rules.pathDepth);
   return `${url.host.toLowerCase()}/${segments.join("/")}`;
 }
 
@@ -46,12 +61,13 @@ export function normalisePath(pageUrl: string | null | undefined): string {
  * the normalised title and page decide. Titles that normalise to nothing
  * don't group: "!!!" and "???" are not the same bug.
  */
-export function fingerprintFor(input: { fingerprint?: string | null; title: string; pageUrl?: string | null }): string | null {
+export function fingerprintFor(input: { fingerprint?: string | null; title: string; pageUrl?: string | null }, rules?: GroupingRules): string | null {
   const explicit = input.fingerprint?.trim();
   if (explicit) return `x:${sha256(explicit).slice(0, 32)}`;
-  const title = normaliseTitle(input.title);
+  const title = normaliseTitle(input.title, rules);
   if (title.length < 3) return null;
-  return `t:${sha256(`${title}\n${normalisePath(input.pageUrl)}`).slice(0, 32)}`;
+  const page = rules?.ignorePage ? "" : normalisePath(input.pageUrl, rules);
+  return `t:${sha256(`${title}\n${page}`).slice(0, 32)}`;
 }
 
 /**

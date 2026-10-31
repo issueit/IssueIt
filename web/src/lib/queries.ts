@@ -78,3 +78,49 @@ export const useDeliveryPolicy = () =>
   useOrgQuery<{ builtIn: DeliveryPolicy; organisation: Partial<DeliveryPolicy>; effective: DeliveryPolicy }>("policy", [], "/delivery-policy");
 export const useOrganisation = () =>
   useOrgQuery<{ organisation: { id: string; name: string; settings: OrgSettings; role: Role } }>("organisation", [], "");
+
+/* ------------------------------------------------- account tokens and audit */
+
+export type AccessToken = {
+  id: string;
+  name: string;
+  prefix: string;
+  scopes: string[];
+  projectIds: string[] | null;
+  lastUsedAt: string | null;
+  lastUsedIp: string | null;
+  expiresAt: string | null;
+  createdAt: string;
+  userId: string;
+  userName: string;
+  mine: boolean;
+};
+
+/** A token as it comes back from creation or rotation: the only time the secret is seen. */
+export type NewToken = {
+  id?: string;
+  token: string;
+  prefix: string;
+  mcp: { command: string; args: string[]; env: Record<string, string> };
+};
+
+export const useTokens = () => useOrgQuery<{ tokens: AccessToken[] }>("tokens", [], "/tokens");
+export const useTokenScopes = () =>
+  useOrgQuery<{ scopes: Array<{ id: string; label: string; ownerOnly: boolean }>; suggested: { agent: string[] }; role: Role }>("tokens", ["scopes"], "/tokens/scopes");
+
+export type AuditEvent = {
+  id: string;
+  actor: string;
+  via: "session" | "token";
+  action: string;
+  target: string | null;
+  details: Record<string, unknown>;
+  ip: string | null;
+  createdAt: string;
+  tokenName: string | null;
+};
+
+export const useAudit = (filters: { actor?: string; action?: string } = {}) => {
+  const q = new URLSearchParams(Object.entries(filters).filter(([, v]) => v) as [string, string][]);
+  return useOrgQuery<{ events: AuditEvent[] }>("audit", [filters], `/audit?${q}`, { keep: true });
+};

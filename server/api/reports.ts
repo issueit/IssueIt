@@ -1,5 +1,5 @@
-import { Hono } from "hono";
-import { and, asc, desc, eq, isNull, sql, type SQL } from "drizzle-orm";
+import { Hono, type Context } from "hono";
+import { and, asc, desc, eq, gte, isNull, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "../db";
 import { priorities, reportStatuses } from "../db/schema";
@@ -8,8 +8,10 @@ import { enqueueStatusChange } from "../delivery/queue";
 import { badRequest, notFound } from "../lib/errors";
 import { storage } from "../lib/storage";
 import { body, parse, type AppEnv } from "../http";
+import { fenced } from "../auth/tokens";
 import { enqueueReportEvent } from "../delivery/queue";
 import { setReportStatus } from "../reports/status";
+import { symbolicate } from "./releases";
 
 const listQuery = z.object({
   project: z.string().optional(),
@@ -17,6 +19,10 @@ const listQuery = z.object({
   priority: z.enum(priorities).optional(),
   q: z.string().trim().max(200).optional(),
   delivery: z.enum(["failed"]).optional(),
+  /** One report by its per-project number, for "report #14". */
+  number: z.coerce.number().int().min(1).optional(),
+  /** Only reports since this moment, for a digest or a catch-up. */
+  since: z.coerce.date().optional(),
   cursor: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });
@@ -39,6 +45,8 @@ export const reportRoutes = new Hono<AppEnv>()
     const r = schema.reports;
     // Duplicates are listed under the report they joined, not on their own.
     const where: SQL[] = [eq(r.orgId, orgId), isNull(r.groupId)];
+    const fence = fenced(c, r.projectId);
+    if (fence) where.push(fence);
     if (query.project) where.push(eq(r.projectId, query.project));
     if (query.status === "open") where.push(sql`${r.status} in ('new', 'investigating')`);
     else if (query.status !== "all") where.push(eq(r.status, query.status));
@@ -47,6 +55,8 @@ export const reportRoutes = new Hono<AppEnv>()
       const like = `%${query.q.replace(/[%_\\]/g, (m) => `\\${m}`)}%`;
       where.push(sql`(${r.title} ilike ${like} or ${r.description} ilike ${like} or ${r.reporterEmail} ilike ${like} or ${r.id} = ${query.q})`);
     }
+    if (query.number) where.push(eq(r.number, query.number));
+    if (query.since) where.push(gte(r.createdAt, query.since));
     if (query.delivery === "failed") where.push(sql`exists (select 1 from deliveries d where d.report_id = ${r.id} and d.status = 'failed')`);
     const cursor = decodeCursor(query.cursor);
     if (cursor) where.push(sql`(${r.createdAt}, ${r.id}) < (${cursor.date.toISOString()}::timestamptz, ${cursor.id})`);
@@ -83,7 +93,7 @@ export const reportRoutes = new Hono<AppEnv>()
     return c.json({ reports: page, nextCursor: more && last ? encodeCursor(last.createdAt, last.id) : null });
   })
   .get("/:id", async (c) => {
-    const report = await loadReport(c.get("orgId"), c.req.param("id"));
+    const report = await loadReport(c, c.req.param("id"));
     const project = await db.query.projects.findFirst({ where: eq(schema.projects.id, report.projectId), columns: { id: true, name: true } });
     const attachments = await db.query.attachments.findMany({ where: eq(schema.attachments.reportId, report.id), orderBy: schema.attachments.createdAt });
     const deliveries = await db
@@ -132,8 +142,11 @@ export const reportRoutes = new Hono<AppEnv>()
       .where(eq(schema.emails.reportId, report.id))
       .orderBy(asc(schema.emails.createdAt));
     const { ipHash: _ip, viaKeyId: _key, fingerprint: _fp, ...safe } = report;
+    // Minified stacks are mapped back when the report is read, so maps
+    // uploaded after the crash still help.
+    const diagnostics = await symbolicate(report);
     return c.json({
-      report: { ...safe, project },
+      report: { ...safe, diagnostics, project },
       attachments: attachments.map((a) => ({ id: a.id, filename: a.filename, contentType: a.contentType, sizeBytes: a.sizeBytes, createdAt: a.createdAt })),
       deliveries,
       group: group ?? null,
@@ -143,7 +156,7 @@ export const reportRoutes = new Hono<AppEnv>()
   })
   .patch("/:id", async (c) => {
     const input = await body(c, z.object({ status: z.enum(reportStatuses).optional(), priority: z.enum(priorities).optional() }));
-    const report = await loadReport(c.get("orgId"), c.req.param("id"));
+    const report = await loadReport(c, c.req.param("id"));
     if (!input.status && !input.priority) return c.json({ report });
     let updated = report;
     if (input.priority && input.priority !== report.priority) {
@@ -159,7 +172,7 @@ export const reportRoutes = new Hono<AppEnv>()
   /** Puts a report into another report's group by hand, e.g. when two people described the same bug differently. */
   .post("/:id/group", async (c) => {
     const input = await body(c, z.object({ into: z.number().int().min(1) }));
-    const report = await loadReport(c.get("orgId"), c.req.param("id"));
+    const report = await loadReport(c, c.req.param("id"));
     let target = await db.query.reports.findFirst({ where: and(eq(schema.reports.projectId, report.projectId), eq(schema.reports.number, input.into)) });
     if (!target) throw notFound(`Report #${input.into}`);
     if (target.groupId) target = (await db.query.reports.findFirst({ where: eq(schema.reports.id, target.groupId) })) ?? target;
@@ -179,7 +192,7 @@ export const reportRoutes = new Hono<AppEnv>()
   })
   /** Takes a duplicate out of its group. It was never delivered, so it's sent to destinations now. */
   .post("/:id/separate", async (c) => {
-    const report = await loadReport(c.get("orgId"), c.req.param("id"));
+    const report = await loadReport(c, c.req.param("id"));
     if (!report.groupId) throw badRequest("This report isn't part of a group.");
     const [updated] = await db.update(schema.reports).set({ groupId: null, fingerprint: null, updatedAt: new Date() }).where(eq(schema.reports.id, report.id)).returning();
     await db.update(schema.reports).set({ duplicateCount: sql`greatest(${schema.reports.duplicateCount} - 1, 0)` }).where(eq(schema.reports.id, report.groupId));
@@ -188,7 +201,7 @@ export const reportRoutes = new Hono<AppEnv>()
     return c.json({ report: updated });
   })
   .delete("/:id", async (c) => {
-    const report = await loadReport(c.get("orgId"), c.req.param("id"));
+    const report = await loadReport(c, c.req.param("id"));
     await db.transaction(async (tx) => {
       // Same lock as ingestion, so a report arriving now can't join a group that's being handed over.
       if (report.fingerprint) await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`${report.projectId}:${report.fingerprint}`}))`);
@@ -216,7 +229,7 @@ export const reportRoutes = new Hono<AppEnv>()
 /** Attachment downloads for signed-in members. */
 export const attachmentRoutes = new Hono<AppEnv>().get("/:id", async (c) => {
   const a = await db.query.attachments.findFirst({
-    where: and(eq(schema.attachments.id, c.req.param("id")), eq(schema.attachments.orgId, c.get("orgId"))),
+    where: and(eq(schema.attachments.id, c.req.param("id")), eq(schema.attachments.orgId, c.get("orgId")), fenced(c, schema.attachments.projectId)),
   });
   if (!a) throw notFound("That attachment");
   return streamAttachment(a, c.req.query("download") === "1");
@@ -246,8 +259,10 @@ export async function streamAttachment(a: typeof schema.attachments.$inferSelect
   });
 }
 
-async function loadReport(orgId: string, id: string) {
-  const report = await db.query.reports.findFirst({ where: and(eq(schema.reports.id, id), eq(schema.reports.orgId, orgId)) });
+async function loadReport(c: Context<AppEnv>, id: string) {
+  const report = await db.query.reports.findFirst({
+    where: and(eq(schema.reports.id, id), eq(schema.reports.orgId, c.get("orgId")), fenced(c, schema.reports.projectId)),
+  });
   if (!report) throw notFound("That report");
   return report;
 }

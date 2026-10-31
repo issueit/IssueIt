@@ -15,6 +15,7 @@ export function randomString(length: number): string {
 }
 
 export type IdPrefix =
-  | "usr" | "org" | "inv" | "prj" | "key" | "rep" | "att" | "con" | "dst" | "dlv" | "evt" | "oas" | "eml";
+  | "usr" | "org" | "inv" | "prj" | "key" | "rep" | "att" | "con" | "dst" | "dlv" | "evt" | "oas" | "eml"
+  | "akt" | "aud" | "rel";
 
 export const newId = (prefix: IdPrefix, length = 14) => `${prefix}_${randomString(length)}`;

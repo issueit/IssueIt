@@ -56,6 +56,8 @@ export const config = {
   dataDir: str("DATA_DIR", "./data"),
 
   allowSignup: bool("ALLOW_SIGNUP", true),
+  /** Turns on /metrics when set; the same value is the bearer token for it. */
+  metricsToken: optional("METRICS_TOKEN") ?? "",
   /** How often to ask trackers whether issues were closed. 0 turns it off. */
   syncMinutes: int("SYNC_INTERVAL_MINUTES", 5),
   webhookAllowPrivate: bool("WEBHOOK_ALLOW_PRIVATE", false),
@@ -67,6 +69,8 @@ export const config = {
     reportsPerIpPerMinute: int("RATE_LIMIT_IP_PER_MINUTE", 10),
     reportsPerProjectPerHour: int("RATE_LIMIT_PROJECT_PER_HOUR", 1000),
     reportsPerKeyPerMinute: int("RATE_LIMIT_KEY_PER_MINUTE", 120),
+    /** Management API requests one account token may make a minute. */
+    tokenRequestsPerMinute: int("RATE_LIMIT_TOKEN_PER_MINUTE", 600),
     reportsPerMonth: int("PLAN_REPORTS_PER_MONTH", 0),
     storageBytes: int("PLAN_STORAGE_MB", 0) * 1024 * 1024,
     attachmentLinkDays: int("ATTACHMENT_LINK_DAYS", 30),

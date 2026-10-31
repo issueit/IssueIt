@@ -9,13 +9,20 @@ import { db, schema } from "./db";
 import { AppError, notFound } from "./lib/errors";
 import type { AppEnv } from "./http";
 import { authRoutes, meRoutes } from "./auth/routes";
-import { requireOrg, requireUser } from "./auth/session";
+import { deviceApprovalRoutes, deviceRoutes } from "./auth/device";
+import { auditTrail, enforceScope, requireAuth, resolveOrg } from "./auth/tokens";
 import { invitationRoutes, orgRoutes, orgScoped } from "./api/organisations";
 import { projectRoutes } from "./api/projects";
 import { attachmentRoutes, reportRoutes, streamAttachment } from "./api/reports";
 import { connectionRoutes, deliveryRoutes, destinationRoutes, orgDestinationRoutes, policyRoutes } from "./api/integrations";
 import { analyticsRoutes } from "./api/analytics";
 import { eventRoutes, usageRoutes } from "./api/usage";
+import { auditRoutes, tokenRoutes, whoamiRoutes } from "./api/tokens";
+import { releaseRoutes } from "./api/releases";
+import { configRoutes, rulePreviewRoutes } from "./api/config";
+import { healthRoutes, metricsRoutes } from "./api/health";
+import { mcpEndpoint } from "./api/mcp";
+import { openapiRoutes } from "./api/openapi";
 import { oauthRoutes } from "./integrations/oauth";
 import { providers } from "./integrations";
 import { ingestRoutes } from "./ingest/routes";
@@ -71,15 +78,26 @@ export function createApp() {
     return c.json({ ok: true });
   });
 
+  /** Prometheus metrics for the whole install, off unless METRICS_TOKEN is set. */
+  app.route("/metrics", metricsRoutes);
+
   /* ---------------------------------------------------------- ingestion (drop.) */
   app.route("/v1", ingestRoutes);
 
   /* ---------------------------------------------------------- dashboard API (dash.) */
+  /**
+   * The management API. A dashboard session or an account token may call it;
+   * `enforceScope` decides what a token is allowed to reach, and `auditTrail`
+   * records whatever changed.
+   */
   const scoped = new Hono<AppEnv>()
-    .use("*", requireUser, requireOrg)
+    .use("*", requireAuth, resolveOrg, enforceScope, auditTrail)
     .route("/", orgScoped)
     .route("/projects", projectRoutes)
     .route("/projects/:project/destinations", destinationRoutes)
+    .route("/projects/:project/releases", releaseRoutes)
+    .route("/projects/:project/config", configRoutes)
+    .route("/projects/:project/rules", rulePreviewRoutes)
     .route("/reports", reportRoutes)
     .route("/attachments", attachmentRoutes)
     .route("/connections", connectionRoutes)
@@ -87,10 +105,16 @@ export function createApp() {
     .route("/destinations", orgDestinationRoutes)
     .route("/delivery-policy", policyRoutes)
     .route("/analytics", analyticsRoutes)
+    .route("/health", healthRoutes)
+    .route("/tokens", tokenRoutes)
+    .route("/whoami", whoamiRoutes)
+    .route("/audit", auditRoutes)
     .route("/usage", usageRoutes)
     .route("/events", eventRoutes);
 
+  app.route("/api/auth/device", deviceRoutes);
   app.route("/api/auth", authRoutes);
+  app.route("/api/me/device", deviceApprovalRoutes);
   app.route("/api/me", meRoutes);
   app.route("/api/invitations", invitationRoutes);
   app.route("/api/oauth", oauthRoutes);
@@ -101,9 +125,19 @@ export function createApp() {
     c.header("cache-control", "public, max-age=300");
     return c.json({ providers: providers.map((p) => ({ id: p.id, name: p.name, category: p.category, summary: p.summary })) });
   });
+  /** The management API, described from the router itself. */
+  app.route("/openapi.json", openapiRoutes(app));
+
   app.all("/api/*", () => {
     throw notFound("That endpoint");
   });
+
+  /**
+   * The Model Context Protocol endpoint, for agents that speak it over HTTP.
+   * It dispatches into this same app, so a token reaches no further here than
+   * it would through the API.
+   */
+  app.route("/mcp", mcpEndpoint(async (req) => app.fetch(req)));
 
   /* ---------------------------------------------------------- public pages and files */
   app.get("/r/:project", async (c) => {

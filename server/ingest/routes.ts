@@ -19,6 +19,9 @@ import { queueReceipt } from "../mail/outbox";
 import { cleanDiagnostics } from "./diagnostics";
 import { cleanFilename, sniff } from "./files";
 import { fingerprintFor } from "./grouping";
+import { isBrowserToken, MAX_TOKEN_SECONDS, mintBrowserToken, readBrowserToken } from "./browser-token";
+import { matchesRule } from "../delivery/queue";
+import { getProvider } from "../integrations";
 
 /**
  * The ingestion API: POST /v1/{project_id}/reports. Kept apart from the
@@ -63,6 +66,10 @@ const reportInput = z.object({
     .optional()
     .nullable(),
   environment: shortText(40),
+  /** Which build this happened on, so a minified stack can be symbolicated. */
+  release: shortText(80),
+  /** Your own key for this submission; sending it twice files one report. */
+  idempotency_key: shortText(120),
   page_url: z.string().trim().max(2000).url("Use a full URL.").optional().nullable().or(z.literal("")),
   browser: shortText(200),
   email: z.string().trim().toLowerCase().email("Enter a valid email address.").max(254).optional().nullable().or(z.literal("")),
@@ -149,6 +156,28 @@ export const ingestRoutes = new Hono()
       "x-content-type-options": "nosniff",
     });
   })
+  /**
+   * A short-lived token for a browser, minted by your own server with a
+   * secret key. Lets a signed-in app send reports while the project stays
+   * closed to everyone else.
+   */
+  .post("/:project/token", async (c) => {
+    const project = await db.query.projects.findFirst({ where: eq(schema.projects.id, c.req.param("project")), columns: { id: true } });
+    if (!project) throw notFound("That project");
+    const token = (c.req.header("authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
+    if (!token.startsWith("sk_")) throw new AppError(401, "invalid_key", "Mint short-lived tokens from your server, with that project's secret key.");
+    if (c.req.header("origin")) throw new AppError(400, "key_in_browser", "Secret keys must only be used from your server.");
+    const key = await db.query.apiKeys.findFirst({ where: and(eq(schema.apiKeys.keyHash, sha256(token)), isNull(schema.apiKeys.revokedAt)) });
+    if (!key || key.projectId !== project.id) throw new AppError(401, "invalid_key", "That secret key isn't valid for this project.");
+    const rl = hitAll([{ key: `mint:${key.id}`, max: config.limits.reportsPerKeyPerMinute, windowMs: 60_000 }]);
+    if (!rl.ok) {
+      c.header("retry-after", String(rl.retryAfter));
+      throw tooMany("Too many tokens minted in a short time.");
+    }
+    const seconds = Number(c.req.query("seconds") ?? 300);
+    const { token: minted, expiresAt } = mintBrowserToken(project.id, Number.isFinite(seconds) ? seconds : 300);
+    return c.json({ success: true, token: minted, expires_at: expiresAt.toISOString(), max_seconds: MAX_TOKEN_SECONDS });
+  })
   .post(
     "/:project/reports",
     bodyLimit({
@@ -165,7 +194,14 @@ export const ingestRoutes = new Hono()
       const origin = c.req.header("origin");
       const auth = c.req.header("authorization");
       let viaKeyId: string | null = null;
-      if (auth) {
+      /** A short-lived token minted by the project's own server for a browser. */
+      let viaBrowserToken = false;
+      if (auth && isBrowserToken(auth.replace(/^Bearer\s+/i, "").trim())) {
+        const token = auth.replace(/^Bearer\s+/i, "").trim();
+        const read = readBrowserToken(token);
+        if (!read || read.projectId !== project.id) throw new AppError(401, "invalid_token", "That short-lived token isn't valid for this project, or it has expired. Ask your server for another.");
+        viaBrowserToken = true;
+      } else if (auth) {
         const token = auth.replace(/^Bearer\s+/i, "").trim();
         if (!token.startsWith("sk_")) throw new AppError(401, "invalid_key", "That isn't a secret key. Project ids don't go in the Authorization header.");
         const key = await db.query.apiKeys.findFirst({ where: and(eq(schema.apiKeys.keyHash, sha256(token)), isNull(schema.apiKeys.revokedAt)) });
@@ -176,8 +212,9 @@ export const ingestRoutes = new Hono()
         if (!key.lastUsedAt || Date.now() - key.lastUsedAt.getTime() > 60_000) {
           await db.update(schema.apiKeys).set({ lastUsedAt: new Date() }).where(eq(schema.apiKeys.id, key.id));
         }
-      } else {
-        if (!project.publicSubmissions) throw new AppError(403, "public_disabled", "This project only accepts reports sent with a secret key.");
+      }
+      if (!auth) {
+        if (!project.publicSubmissions) throw new AppError(403, "public_disabled", "This project only accepts reports sent with a secret key, or a short-lived token from your server.");
         const allowed = project.allowedOrigins;
         if (allowed.length && origin !== appOrigin && !(origin && allowed.includes(origin))) {
           throw new AppError(403, "origin_not_allowed", "Reports from this site aren't allowed for this project.");
@@ -204,6 +241,27 @@ export const ingestRoutes = new Hono()
       }
 
       const { input, files } = await readBody(c);
+
+      /**
+       * The same submission twice — a retry after a timeout, a queue that
+       * delivers at least once — files one report. The key is the caller's,
+       * scoped to the project.
+       */
+      const idempotencyKey = (c.req.header("idempotency-key") ?? input.idempotency_key ?? "").trim().slice(0, 120) || null;
+      if (idempotencyKey) {
+        const earlier = await db.query.reports.findFirst({
+          where: and(eq(schema.reports.projectId, project.id), eq(schema.reports.idempotencyKey, idempotencyKey)),
+          columns: { id: true, groupId: true },
+        });
+        if (earlier) {
+          c.header("idempotent-replay", "true");
+          return c.json({ success: true, report_id: earlier.id, message: "Report already received", duplicate: !!earlier.groupId, replayed: true }, 200);
+        }
+      }
+
+      /** Says what would happen without storing anything. */
+      const dryRun = ["1", "true", "yes"].includes((c.req.query("dry_run") ?? "").toLowerCase());
+
       if (input.website) {
         // Pretend to accept honeypot submissions so bots learn nothing.
         return c.json({ success: true, report_id: newId("rep"), message: "Report received" }, 201);
@@ -234,9 +292,9 @@ export const ingestRoutes = new Hono()
 
       const metadata = input.metadata ?? {};
       if (JSON.stringify(metadata).length > 16_384) throw badRequest("metadata: Keep metadata under 16 KB.");
-      const diagnostics = cleanDiagnostics(input.diagnostics);
+      const diagnostics = cleanDiagnostics(input.diagnostics, project.rules.redaction?.patterns);
       const pageUrl = input.page_url || null;
-      const fingerprint = fingerprintFor({ fingerprint: input.fingerprint, title: input.title, pageUrl });
+      const fingerprint = fingerprintFor({ fingerprint: input.fingerprint, title: input.title, pageUrl }, project.rules.grouping);
       const reporterEmail = input.reporter?.email || input.email || null;
       // Emails go to whatever address is typed in, so one visitor can only ask for a few a day.
       let notifyReporter = !!input.notify && !!reporterEmail;
@@ -249,6 +307,50 @@ export const ingestRoutes = new Hono()
 
       const reportId = newId("rep");
       const priority = priorityAliases[(input.priority ?? input.severity ?? "medium").toLowerCase()] ?? "medium";
+      const source = input.source || (viaKeyId ? "api" : origin === appOrigin ? "form" : origin || viaBrowserToken ? "widget" : "api");
+
+      if (dryRun) {
+        const [openGroup] = fingerprint && project.groupDuplicates
+          ? await db
+              .select({ id: schema.reports.id, number: schema.reports.number, title: schema.reports.title, duplicateCount: schema.reports.duplicateCount })
+              .from(schema.reports)
+              .where(
+                and(
+                  eq(schema.reports.projectId, project.id),
+                  eq(schema.reports.fingerprint, fingerprint),
+                  isNull(schema.reports.groupId),
+                  sql`${schema.reports.status} in ('new', 'investigating')`,
+                ),
+              )
+              .limit(1)
+          : [];
+        const destinations = await db.query.destinations.findMany({ where: and(eq(schema.destinations.projectId, project.id), eq(schema.destinations.enabled, true)) });
+        const shaped = { priority, source, environment: input.environment || null };
+        const routed = destinations.map((d) => {
+          const provider = getProvider(d.provider);
+          const wouldDeliver = !!provider && provider.events.includes("report.created") && d.events.includes("report.created") && matchesRule(d.rule, shaped);
+          return {
+            id: d.id,
+            name: d.name,
+            provider: d.provider,
+            would_deliver: wouldDeliver && !openGroup,
+            // A duplicate isn't delivered again; the tracker may get a comment instead.
+            why: !wouldDeliver ? "the destination's rule doesn't match this report" : openGroup ? "this report would join an open group, so it isn't delivered again" : null,
+          };
+        });
+        return c.json({
+          success: true,
+          dry_run: true,
+          report: { title: input.title, priority, source, environment: shaped.environment, page_url: pageUrl, release: input.release ?? null, country },
+          fingerprint,
+          duplicate_of: openGroup ? { id: openGroup.id, number: openGroup.number, title: openGroup.title, seen: openGroup.duplicateCount + 1 } : null,
+          diagnostics,
+          attachments: prepared.map((f) => ({ filename: f.filename, content_type: f.contentType, size_bytes: f.data.byteLength })),
+          destinations: routed,
+          would_email: !!notifyReporter,
+          message: "Nothing was stored.",
+        });
+      }
       const written: string[] = [];
       let report: typeof schema.reports.$inferSelect;
       let lead: typeof schema.reports.$inferSelect | null = null;
@@ -293,8 +395,10 @@ export const ingestRoutes = new Hono()
               description: input.description?.trim() ?? "",
               priority,
               status: lead?.status ?? "new",
-              source: input.source || (viaKeyId ? "api" : origin === appOrigin ? "form" : origin ? "widget" : "api"),
+              source,
               environment: input.environment || null,
+              release: input.release || null,
+              idempotencyKey,
               pageUrl,
               browser: input.browser || context.browser || null,
               context,
