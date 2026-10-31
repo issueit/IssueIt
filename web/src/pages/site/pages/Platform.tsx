@@ -363,13 +363,20 @@ export default function Platform() {
               ["Reports per visitor, per project", "10 a minute", <C>RATE_LIMIT_IP_PER_MINUTE</C>],
               ["Reports per secret key", "120 a minute", <C>RATE_LIMIT_KEY_PER_MINUTE</C>],
               ["Reports per project", "1,000 an hour", <C>RATE_LIMIT_PROJECT_PER_HOUR</C>],
-              ["Reports per project, per month", "Unlimited", <C>PLAN_REPORTS_PER_MONTH</C>],
+              ["Reports per organisation, per month", "Unlimited, or the plan's", <C>PLAN_REPORTS_PER_MONTH</C>],
               ["Attachments per report", "5", <C>MAX_ATTACHMENTS_PER_REPORT</C>],
               ["Size of each attachment", "10 MB", <C>MAX_ATTACHMENT_MB</C>],
               ["Attachment storage per organisation", "Unlimited", <C>PLAN_STORAGE_MB</C>],
+              ["Management API, per account token", "600 a minute", <C>RATE_LIMIT_TOKEN_PER_MINUTE</C>],
               ["JSON body", "256 KB", "Fixed"],
             ]}
           />
+          <p>
+            On an install that sells plans (<C>EDITION=hosted</C>), the monthly allowance, attachment sizes and the per-key rate come from the organisation's plan, capped by
+            the variables above: the environment is the operator's ceiling and the plan is the commercial limit. <C>GET /api/plans</C> lists them, and self-hosted installs
+            return an empty list. The monthly allowance is not a cliff — a tenth over it is still accepted, after which{" "}
+            <C>plan_limit</C> is returned with <C>Retry-After</C> set to the start of next month, and the number turned away is counted and shown to the organisation's owners.
+          </p>
           <p>
             Visitors are counted by a keyed hash of their IP address; the address itself isn't stored. Windows are fixed and held in memory, which suits the default single process. A <C>429</C>{" "}
             carries <C>Retry-After</C> in seconds:
@@ -401,7 +408,8 @@ export default function Platform() {
                   Too many reports. Honour <C>Retry-After</C>.
                 </>,
               ],
-              ["429", <C>plan_limit</C>, "The project's monthly allowance is used up."],
+              ["429", <C>plan_limit</C>, "The monthly allowance, plus its grace, is used up. Resets at the start of the month."],
+              ["402", <C>upgrade_required</C>, "A management API endpoint the organisation's plan doesn't include. Never returned by intake, and never on a self-hosted install."],
               ["500", <C>server_error</C>, "Something failed on our side. Safe to retry."],
               ["507", <C>storage_full</C>, "The organisation's attachment storage is full."],
             ]}
@@ -482,7 +490,33 @@ export default function Platform() {
                 <C>SMTP_URL</C>,
                 "Unset",
                 <>
-                  Outgoing mail, sent as <C>SMTP_FROM</C>.
+                  Everything Issueit sends itself, as <C>SMTP_FROM</C>: resets, confirmations, invitations, alerts, digests and reporter mail. Set it before anyone else signs
+                  up — without it a forgotten password can only be fixed in the database.
+                </>,
+              ],
+              [
+                <C>EDITION</C>,
+                <C>selfhost</C>,
+                <>
+                  <C>selfhost</C> turns every feature on and applies only the limits above. <C>hosted</C> turns on per-organisation plans, trials and Stripe billing.
+                </>,
+              ],
+              [<C>TRIAL_DAYS</C>, <C>14</C>, "Hosted only: days a new organisation gets on the trial plan."],
+              [
+                <C>STRIPE_SECRET_KEY</C>,
+                "Unset",
+                <>
+                  Hosted only, with <C>STRIPE_WEBHOOK_SECRET</C> and a price id per plan. The webhook at <C>/api/billing/webhook</C> is the only thing that writes a plan, and
+                  its signature is checked before its body is read.
+                </>,
+              ],
+              [<C>JOBS_HOUR_UTC</C>, <C>7</C>, "When the daily round runs: retention, digests, trial endings."],
+              [<C>RETENTION_ENABLED</C>, <C>true</C>, "Set false to keep attachments and captured diagnostics for ever."],
+              [
+                <C>METRICS_TOKEN</C>,
+                "Unset",
+                <>
+                  Turns on <C>/metrics</C> in Prometheus format, with this value as the bearer token. Off means 404.
                 </>,
               ],
               [<C>{"<SERVICE>_CLIENT_ID"}</C>, "Unset", "Turns on sign-in connections for that service. See the documentation."],

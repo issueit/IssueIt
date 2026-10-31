@@ -15,6 +15,21 @@ Open `APP_URL` (on this server: http://192.168.0.62:8380), create an account, th
 
 `ENCRYPTION_KEY` protects stored integration credentials and API keys. Back it up with the database; without it, connected accounts must be reconnected.
 
+Set `SMTP_URL` and `SMTP_FROM` before anyone else signs up: password resets, address confirmations, invitations, report alerts and digests all go through it.
+
+```sh
+./scripts/backup.sh                       # database + attachments + .env, into ./backups, 30 days kept
+./scripts/restore.sh backups/<directory>  # put one back
+```
+
+Nightly, from cron, as the user that owns the compose project:
+
+```
+15 3 * * *  cd /home/you/srv/IssueIt && ./scripts/backup.sh >> backups/backup.log 2>&1
+```
+
+Copy them off the machine too. A backup on the same disk as the database is not a backup.
+
 ## Develop
 
 ```sh
@@ -41,6 +56,9 @@ npm run db:generate           # after changing server/db/schema.ts
 | `mcp/` | `@issueit/mcp`, the MCP server for coding agents. Its tools are shared with the app's own `/mcp` endpoint |
 | `cli/` | `issueit`, the command line. Shares the API client and renderers with `mcp/` |
 | `sdk/` | `@issueit/node` and `@issueit/react`, thin wrappers over the intake API |
+| `server/billing/` | Plans, entitlements and Stripe. `entitlements.ts` is the only thing that knows whether this is the hosted service or somebody's own install |
+| `server/jobs/` | The daily round: retention, digests, trials |
+| `scripts/publish-oss.mjs` | Exports the self-hosted edition to its own repository |
 
 ## How it works
 
@@ -58,6 +76,13 @@ npm run db:generate           # after changing server/db/schema.ts
 - **Health**: `GET /api/orgs/current/health` answers "how old is the oldest thing still waiting", and `/metrics` serves the same install-wide in Prometheus format when `METRICS_TOKEN` is set.
 - **Location**: a report's country comes from a proxy's country header when `TRUST_PROXY` is set, otherwise from the reporter's time zone. No IP lookups. It feeds the dashboard's world map.
 - **Dashboard** layout and chart options are saved per person per organisation (`memberships.preferences`); numbers come from one `/analytics` request.
+- **Plans and limits**: `server/billing/plans.ts` is the one table the pricing page, the billing page, the limit checks and Stripe all read. `server/billing/entitlements.ts` decides what an organisation may do, and is the only place that knows the edition: `EDITION=selfhost` (the default) means every feature on and the operator's own env limits; `hosted` means per-organisation plans. Which endpoints a plan must include is one route table beside the scope rules it mirrors.
+- **Billing**: Stripe over its REST API with `fetch`, no SDK. Checkout and the customer portal are the only ways money moves; the webhook's signature is verified before its body is read, and the webhook is the only thing that writes a plan.
+- **Intake limits**: the monthly allowance accepts a tenth over before refusing with `plan_limit`, counts what it turned away in `usage_refusals`, and emails the owners once at 80% and once when it starts refusing.
+- **System email** (`server/mail/notices.ts`): an outbox beside the reporter one, holding the context rather than the rendered message, so fixing a template reaches everything still queued. Resets, confirmations, invitations, report alerts, paused destinations, digests, allowance warnings and payment problems.
+- **Two-factor** (`server/auth/totp.ts`): RFC 6238 written out rather than taken as a dependency, checked against the RFC's own vectors. Setting it up proves a code works before it's turned on, and recovery codes are stored as hashes.
+- **Retention** (`server/jobs/retention.ts`): attachments and captured diagnostics are deleted when the plan or the install says to; the report keeps its title, page and status. An organisation can also ask for reports to be deleted outright after a period.
+- **Editions**: `scripts/publish-oss.mjs` copies an allowlist into the public self-hosted repository and refuses to guess — a new top-level directory has to be listed. It holds back the token-based integration catalogue and nothing else, and `--verify` installs, typechecks, tests and builds the result on its own.
 - **Live updates** use Postgres `LISTEN/NOTIFY` and server-sent events, so the dashboard doesn't poll.
 - **Domains**: set `DROP_URL`, `CDN_URL` and `DOCS_URL` to split hosting (drop./cdn./docs.issueit.app); by default everything is served from `APP_URL`.
 - **OAuth**: each integration offers sign-in when its client id and secret are set (see `.env.example`), and a token or webhook-URL connection otherwise.
@@ -92,3 +117,13 @@ npx issueit listen --forward http://localhost:3000/hooks
 ## Design
 
 The interface follows the Kern design criteria: greyscale, colour only for state, compact rows, sentence case, British English, Solar icons only (brand marks from Simple Icons).
+
+## Editions and licence
+
+This repository is the private source of the hosted service, and is not licensed for redistribution (`LICENSE`).
+
+```sh
+node scripts/publish-oss.mjs --out ../issueit-selfhost --verify
+```
+
+That exports the **self-hosted edition** — everything but the token-based integration catalogue — into its own directory under AGPL-3.0, ready to commit and push. Plans and billing travel with it and sit inert, because `EDITION` defaults to `selfhost`: every feature on, limits from the operator's own `.env`. The client libraries (`issueit`, `@issueit/mcp`, `@issueit/node`, `@issueit/react`) stay MIT so they can be vendored anywhere.

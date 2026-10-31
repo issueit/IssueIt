@@ -19,14 +19,17 @@ export function Segmented<T extends string>({
   onChange,
   options,
   ariaLabel,
+  disabled,
 }: {
   value: T;
   onChange: (v: T) => void;
   options: Array<{ value: T; label: ReactNode }>;
   ariaLabel: string;
+  disabled?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const onKey = (e: KeyboardEvent) => {
+    if (disabled) return;
     if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
     e.preventDefault();
     const i = options.findIndex((o) => o.value === value);
@@ -35,9 +38,17 @@ export function Segmented<T extends string>({
     requestAnimationFrame(() => ref.current?.querySelector<HTMLButtonElement>('[aria-checked="true"]')?.focus());
   };
   return (
-    <div ref={ref} className="segmented" role="radiogroup" aria-label={ariaLabel} onKeyDown={onKey}>
+    <div ref={ref} className="segmented" role="radiogroup" aria-label={ariaLabel} aria-disabled={disabled || undefined} onKeyDown={onKey}>
       {options.map((o) => (
-        <button key={o.value} type="button" role="radio" aria-checked={o.value === value} tabIndex={o.value === value ? 0 : -1} onClick={() => onChange(o.value)}>
+        <button
+          key={o.value}
+          type="button"
+          role="radio"
+          aria-checked={o.value === value}
+          tabIndex={o.value === value ? 0 : -1}
+          disabled={disabled}
+          onClick={() => onChange(o.value)}
+        >
           {o.label}
         </button>
       ))}

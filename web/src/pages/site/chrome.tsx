@@ -60,6 +60,7 @@ export function Nav() {
               {label}
             </a>
           ))}
+          <Link to="/pricing">Pricing</Link>
           <Link to="/platform">Platform</Link>
           <Link to="/docs">Docs</Link>
         </nav>
@@ -95,6 +96,7 @@ const columns: Array<{ title: string; links: FootLink[] }> = [
       { label: "Destinations", to: "/#destinations", note: "134" },
       { label: "Retries and recovery", to: "/#reliability" },
       { label: "Self-hosting", to: "/#self-host" },
+      { label: "Pricing", to: "/pricing" },
       { label: "Documentation", to: "/docs" },
       { label: "Sign in", to: "/login" },
     ],

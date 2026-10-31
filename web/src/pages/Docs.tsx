@@ -15,11 +15,15 @@ const sections = [
   ["api", "REST API"],
   ["keys", "Keys and security"],
   ["agents", "Agents and tooling"],
+  ["triage", "Triage"],
+  ["notifications", "Notifications"],
   ["duplicates", "Duplicates"],
   ["releases", "Releases and source maps"],
   ["reporters", "Emails to reporters"],
   ["integrations", "Integrations"],
   ["webhooks", "Webhooks"],
+  ["accounts", "Accounts and access"],
+  ["retention", "What's kept"],
   ["self-hosting", "Self-hosting"],
 ] as const;
 
@@ -455,6 +459,42 @@ const { token } = await res.json();   // give this to the page`}
             <C>ok</C>, <C>degraded</C> or <C>behind</C>, with the reasons. Set <C>METRICS_TOKEN</C> and <C>{`${origin}/metrics`}</C> serves the same in Prometheus format for the whole install.
           </P>
 
+          <H2 id="triage">Triage</H2>
+          <P>
+            Issueit isn't an issue tracker — that's what your destinations are for — but a report has to be dealt with by somebody, so the inbox does the few things that take.
+          </P>
+          <Table
+            head={["This", "Does that"]}
+            rows={[
+              ["Assign", "Puts someone's name on a report. Filter the inbox by Assigned to me to see yours."],
+              ["Notes", "What you tried and what it turned out to be. Internal: never delivered anywhere, never shown to the reporter."],
+              ["Choose several", <>The checkbox on each row, or <C>x</C>. Shift-click picks a run of them. Then resolve, close, assign or delete the lot.</>],
+              ["Keyboard", <><C>j</C> and <C>k</C> move, <C>e</C> resolves, <C>m</C> assigns to you, <C>x</C> chooses, <C>Enter</C> opens.</>],
+              ["Search", "Matches the title, the description, the reporter's address, or a report id pasted whole."],
+            ]}
+          />
+          <P>
+            Every change can be undone from the toast that follows it, and resolving a report emails the reporters who asked to hear, however many of them reported the same thing.
+          </P>
+
+          <H2 id="notifications">Notifications</H2>
+          <P>
+            A pipeline nobody is told about is one you have to remember to check. Settings › Notifications is per person and per organisation, so you can take everything from
+            your own project and nothing from a colleague's.
+          </P>
+          <Table
+            head={["Email", "When"]}
+            rows={[
+              ["A report arrived", "Off, critical only (the default), high and above, or everything. A duplicate joining an open bug never emails anyone: you were told about that one already."],
+              ["A destination was paused", "Issueit stops sending to a destination whose deliveries keep failing. Reports are still collected; nothing is leaving. Once a day per destination at most."],
+              ["Digest", "Daily or weekly: what arrived, what was resolved, what's stuck. Nothing is sent on a quiet day. Send yourself one from that page to see it."],
+              ["You're near the allowance", "Hosted plans only, to owners, once a month at 80% and again when reports start being turned away."],
+            ]}
+          />
+          <P>
+            All of it needs a mail server on the install (<C>SMTP_URL</C>). Without one the page says so and nothing is sent.
+          </P>
+
           <H2 id="duplicates">Duplicates</H2>
           <P>
             When a report has the same title on the same page as a report that's still open, it joins that report instead of being delivered again. Titles are compared without case, punctuation or
@@ -550,14 +590,56 @@ const { token } = await res.json();   // give this to the page`}
           <div className="h-3" />
           <P>Respond with any 2xx status within 15 seconds. Other responses are retried, except 410 Gone, which stops retries for that delivery. Webhook URLs must resolve to public addresses.</P>
 
+          <H2 id="accounts">Accounts and access</H2>
+          <P>
+            Signing in is an email address and a password, with an optional six-digit code from an authenticator app. Turn that on in Settings › Account: Issueit shows a setup
+            key, waits for a code from it to prove the app works, and then hands over ten recovery codes. Each recovery code works once, and they're stored only as hashes.
+          </P>
+          <Table
+            head={["This", "Works like this"]}
+            rows={[
+              ["Forgotten password", <>The link on the sign-in page emails a link that lasts an hour and works once. Resetting signs out every other session. Two-step still applies afterwards: an inbox alone isn't enough.</>],
+              ["Confirming your address", "Sent when you sign up or change it. Until it's confirmed Issueit can't send you a reset, so the dashboard keeps asking."],
+              ["Invitations", "Settings › Members. The invited address gets an email, and the link is shown as well so you can pass it on yourself. It lasts seven days."],
+              ["Account tokens", <>For things with no browser: the CLI, CI, an agent. Organisation-wide, scoped, and listed in Settings › Account tokens. See <a href="#agents" className="underline underline-offset-2">Agents and tooling</a>.</>],
+            ]}
+          />
+
+          <H2 id="retention">What's kept</H2>
+          <P>
+            Screenshots, video and captured diagnostics are the heavy and the personal part of a bug report. They're deleted on a schedule; the report itself — title, page,
+            status, who reported it — stays until someone deletes it.
+          </P>
+          <Table
+            head={["Data", "Kept until"]}
+            rows={[
+              ["Attachments and diagnostics", "The retention period for the install or the plan passes. On the hosted service that's between a week and a year, shown in Settings › Plan and billing."],
+              ["Reports", <>Deleted by hand, with their project, or with their organisation. An owner can also set a period in Settings › General, after which they go on their own.</>],
+              ["Delivery records", "Their report is deleted."],
+              ["Sent email and used links", "A month for notices, a week for expired reset and confirmation codes."],
+            ]}
+          />
+          <P>Copies already delivered to your tracker or chat stay there. Deleting a report in Issueit never reaches into another service.</P>
+
           <H2 id="self-hosting">Self-hosting</H2>
           <P>
             Issueit runs as one container plus PostgreSQL. Connecting with a sign-in needs an OAuth app for each service; without one, the dashboard offers the token method instead. Register each app
             with the redirect URL <C>{`${origin}/api/oauth/{service}/callback`}</C> and set the variables below.
           </P>
           <P>
-            For Issueit to email reporters itself, set <C>SMTP_URL</C> (for example <C>smtps://user:password@smtp.example.com:465</C>) and <C>SMTP_FROM</C>. Without them, projects can still email
-            reporters through their own email connection. <C>SYNC_INTERVAL_MINUTES</C> sets how often trackers are checked for closed issues; 0 turns it off.
+            Set <C>SMTP_URL</C> (for example <C>smtps://user:password@smtp.example.com:465</C>) and <C>SMTP_FROM</C> before anybody else signs up. Everything Issueit sends on
+            its own behalf goes through it: password resets, address confirmations, invitations, report alerts and digests. Without it a forgotten password can only be fixed in
+            the database, though projects can still email reporters through their own email connection.
+          </P>
+          <P>
+            <C>SYNC_INTERVAL_MINUTES</C> sets how often trackers are checked for closed issues; 0 turns it off. <C>JOBS_HOUR_UTC</C> is when the daily round runs — deleting
+            what retention says to delete and sending digests — and <C>RETENTION_ENABLED=false</C> keeps everything for ever.
+          </P>
+          <P>
+            <strong className="text-text">Back it up.</strong> <C>./scripts/backup.sh</C> takes the three things that matter — the database, the attachment files and{" "}
+            <C>.env</C> — into a dated directory, keeps 30 days and can be run from cron; <C>./scripts/restore.sh &lt;directory&gt;</C> puts them back. Copy them off the
+            machine as well. <C>ENCRYPTION_KEY</C> matters most: it decrypts every stored integration credential, and without it each connected account has to be reconnected
+            by hand.
           </P>
           <Table
             head={["Service", "Environment variables"]}

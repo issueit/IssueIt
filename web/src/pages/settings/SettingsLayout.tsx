@@ -9,6 +9,7 @@ const sections = [
       { to: "organisation", label: "General" },
       { to: "members", label: "Members" },
       { to: "usage", label: "Usage and limits" },
+      { to: "billing", label: "Plan and billing" },
     ],
   },
   {
@@ -29,6 +30,7 @@ const sections = [
     heading: "You",
     items: [
       { to: "account", label: "Account" },
+      { to: "notifications", label: "Notifications" },
       { to: "appearance", label: "Appearance" },
       { to: "dashboard", label: "Dashboard" },
     ],

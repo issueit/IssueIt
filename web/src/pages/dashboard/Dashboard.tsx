@@ -14,6 +14,7 @@ import { AddIcon, Chart2Icon, CheckIcon, EyeClosedIcon, MenuDotsIcon, PenIcon, R
 import { Menu, type MenuItem } from "../../components/ui/Menu";
 import { PageHeader } from "../../components/ui/layout";
 import { CardBody, cardSummary, type CardContext } from "../../features/dashboard/cards";
+import { OnboardingCard } from "../../features/dashboard/Onboarding";
 import { useVizTheme } from "../../features/dashboard/chart";
 
 const rangeLong: Record<AnalyticsRange, string> = { "24h": "the last 24 hours", "7d": "the last 7 days", "30d": "the last 30 days", "90d": "the last 90 days", "12m": "the last 12 months" };
@@ -93,6 +94,11 @@ export default function DashboardPage() {
       />
 
       <div className={`page-body dash ${prefs.density === "compact" ? "dash--compact" : ""}`}>
+        {!editing && (
+          <div className="dash-grid mb-3">
+            <OnboardingCard />
+          </div>
+        )}
         {editing && (
           <div className="dash-editbar" role="region" aria-label="Customising the dashboard">
             <ReorderIcon size={15} />

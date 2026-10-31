@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { Link } from "react-router";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, describeError } from "../../lib/api";
 import { relativeTime } from "../../lib/format";
 import { useKeys } from "../../lib/queries";
@@ -87,6 +88,8 @@ export function ProjectKeys() {
 
   return (
     <div className="page-body page-body--narrow">
+      <FirstReportWatch projectId={project.id} />
+
       <SetGroup title="Public">
         <SetRow label="Project id" hint="Safe to put in web pages. It lets browsers send reports to this project and can't read anything.">
           <div className="w-[260px]">
@@ -193,6 +196,86 @@ export function ProjectKeys() {
       >
         {shown && <CopyField value={shown.key} what="secret key" />}
       </Dialog>
+    </div>
+  );
+}
+
+/**
+ * While a project has never had a report, this watches for the first one.
+ * The question anybody has after pasting the snippet is "did that work",
+ * and the honest answer is a live one.
+ */
+function FirstReportWatch({ projectId }: { projectId: string }) {
+  const { stats } = useProjectContext();
+  const { path } = useOrg();
+  const [arrived, setArrived] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const waiting = useQuery({
+    queryKey: ["first-report", projectId],
+    // Only while nothing has ever arrived, and then every few seconds.
+    enabled: !stats.total && !arrived,
+    refetchInterval: 4000,
+    queryFn: async () => {
+      const result = await api<{ reports: Array<{ id: string; number: number; title: string }> }>(path(`/reports?project=${projectId}&status=all&limit=1`));
+      if (result.reports.length) setArrived(true);
+      return result;
+    },
+  });
+
+  if (stats.total) return null;
+
+  const first = waiting.data?.reports[0];
+  if (arrived && first) {
+    return (
+      <div className="mb-4">
+        <Callout
+          tone="success"
+          title="Your first report just arrived"
+          action={
+            <Link to={`/projects/${projectId}/reports/${first.id}`} className="btn btn--sm">
+              Open #{first.number}
+            </Link>
+          }
+        >
+          “{first.title}”. That's intake working. Next: send it somewhere.
+        </Callout>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mb-4">
+      <Callout
+        tone="info"
+        title={
+          <span className="flex items-center gap-2">
+            <span className="spinner" aria-hidden />
+            Waiting for your first report
+          </span>
+        }
+        action={
+          <Button
+            size="sm"
+            busy={busy}
+            onClick={async () => {
+              setBusy(true);
+              try {
+                const { report } = await api<{ report: { number: number } }>(path("/onboarding/test-report"), { body: { project: projectId } });
+                toast(`Test report #${report.number} filed`);
+              } catch (err) {
+                toastError(describeError(err, "Couldn't file a test report."));
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            Send a test report
+          </Button>
+        }
+      >
+        Paste the snippet into your site and submit something. This page will say so the moment it lands.
+      </Callout>
     </div>
   );
 }

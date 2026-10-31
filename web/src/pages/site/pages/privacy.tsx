@@ -158,6 +158,10 @@ export const privacy: LegalDoc = {
           head={["Recipient", "What and why"]}
           rows={[
             ["Destinations an organisation connects", "Reports that match a destination's rules, sent there on the organisation's instruction. They hold their copy under their own policies."],
+            [
+              "Stripe",
+              "On the hosted service only, and only for a paid plan: the billing name, email and address you give Stripe, and what the subscription is for. Card details go straight to Stripe and never reach our servers.",
+            ],
             ["Infrastructure providers", "Hosting, storage and email delivery, under contracts that allow them to use the data only to provide their service to us."],
             ["Professional advisers", "Lawyers and accountants, where needed, under duties of confidentiality."],
             ["Authorities", "Only when the law requires it. We'll tell the affected organisation first unless we're not allowed to."],
@@ -182,9 +186,14 @@ export const privacy: LegalDoc = {
         <Table
           head={["Data", "Kept until"]}
           rows={[
-            ["Reports, attachments and delivery records", "The report, its project or its organisation is deleted. Files are removed at the same time."],
+            [
+              "Screenshots, video and captured diagnostics",
+              "The plan's retention period passes — between a week and a year, shown in Settings → Plan and billing — after which they're deleted automatically and the report keeps only its title, page and status.",
+            ],
+            ["Reports and delivery records", "The report, its project or its organisation is deleted. An organisation can also set its own period, after which reports are deleted outright."],
             ["Your account", "You delete it under Settings → Account. Organisations where you're the only member, with their reports and files, go with it."],
             ["Sessions", "You sign out, or 30 days pass, after which they're cleared at the next sign-in."],
+            ["Password reset and address confirmation links", "Used once, or an hour (resets) or a day (confirmations) passes. Only a hash of each link is stored."],
             ["Invitations, including the invited address", "Cancelled, or cleared the next time anyone sends an invitation once they're accepted or seven days have passed."],
             ["Sign-in links with other services", "Used, or cleared once 15 minutes have passed."],
             ["Connected-service credentials", "You disconnect the account."],

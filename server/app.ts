@@ -11,7 +11,8 @@ import type { AppEnv } from "./http";
 import { authRoutes, meRoutes } from "./auth/routes";
 import { deviceApprovalRoutes, deviceRoutes } from "./auth/device";
 import { auditTrail, enforceScope, requireAuth, resolveOrg } from "./auth/tokens";
-import { enforceFeatures } from "./billing/entitlements";
+import { enforceFeatures, hosted } from "./billing/entitlements";
+import { money, planList } from "./billing/plans";
 import { invitationRoutes, orgRoutes, orgScoped } from "./api/organisations";
 import { projectRoutes } from "./api/projects";
 import { attachmentRoutes, reportRoutes, streamAttachment } from "./api/reports";
@@ -133,6 +134,31 @@ export function createApp() {
   app.route("/api/oauth", oauthRoutes);
   app.route("/api/orgs/:org", scoped);
   app.route("/api/orgs", orgRoutes);
+  /**
+   * The plans, public so the pricing page states what is actually sold
+   * rather than a copy of it that drifts. Empty on a self-hosted install.
+   */
+  app.get("/api/plans", (c) => {
+    c.header("cache-control", "public, max-age=300");
+    return c.json({
+      edition: config.edition,
+      trialDays: config.trialDays,
+      plans: hosted
+        ? planList.map((p) => ({
+            id: p.id,
+            name: p.name,
+            blurb: p.blurb,
+            who: p.who,
+            monthly: p.monthly,
+            yearly: p.yearly,
+            monthlyLabel: p.monthly ? money(p.monthly) : "Free",
+            yearlyLabel: p.yearly ? money(p.yearly) : "Free",
+            limits: p.limits,
+            features: p.features,
+          }))
+        : [],
+    });
+  });
   /** The integration catalogue, public so the docs and the marketing site list what's live. */
   app.get("/api/catalogue", (c) => {
     c.header("cache-control", "public, max-age=300");

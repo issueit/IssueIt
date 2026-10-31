@@ -6,22 +6,28 @@ export function Field({
   hint,
   error,
   optional,
+  action,
   children,
 }: {
   label: ReactNode;
   hint?: ReactNode;
   error?: string;
   optional?: boolean;
+  /** Something small on the right of the label, such as "Forgotten?". */
+  action?: ReactNode;
   children: ReactElement<any>;
 }) {
   const id = useId();
   const hintId = `${id}-hint`;
   return (
     <div className="field">
-      <label className="field__label" htmlFor={id}>
-        {label}
-        {optional && <span className="optional"> (optional)</span>}
-      </label>
+      <div className="flex items-baseline justify-between gap-2">
+        <label className="field__label" htmlFor={id}>
+          {label}
+          {optional && <span className="optional"> (optional)</span>}
+        </label>
+        {action}
+      </div>
       {cloneElement(children, {
         id,
         "aria-invalid": error ? true : undefined,

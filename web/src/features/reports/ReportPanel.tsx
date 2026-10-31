@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { api, describeError } from "../../lib/api";
@@ -25,6 +26,9 @@ import {
   TrashBin2Icon,
   UsersGroupRoundedIcon,
 } from "../../components/ui/icons";
+import { Lightbox } from "./Lightbox";
+import { Notes } from "./Notes";
+import { AssigneeMenu } from "./Assignee";
 import { Diagnostics } from "./Diagnostics";
 import { DeliveryPill, PriorityLabel, priorityLabels, ReportStatusPill, sourceLabel, statusLabels } from "../../components/app/status";
 
@@ -82,6 +86,8 @@ function PanelSkeleton({ onClose }: { onClose: () => void }) {
 function ReportView({ data, onClose }: { data: ReportDetail; onClose: () => void }) {
   const { report: r, attachments, deliveries, group, duplicates, emails } = data;
   const { orgId, path } = useOrg();
+  /** Which image is open full size, if any. */
+  const [viewing, setViewing] = useState<number | null>(null);
   const qc = useQueryClient();
   const navigate = useNavigate();
   const route = useLocation();
@@ -123,7 +129,7 @@ function ReportView({ data, onClose }: { data: ReportDetail; onClose: () => void
   };
   const key = ["org", orgId, "reports", "detail", r.id];
 
-  const update = async (patch: { status?: ReportStatus; priority?: Priority }, undoable = true) => {
+  const update = async (patch: { status?: ReportStatus; priority?: Priority; assigneeId?: string | null }, undoable = true) => {
     const previous = qc.getQueryData<ReportDetail>(key);
     qc.setQueryData<ReportDetail>(key, (d) => (d ? { ...d, report: { ...d.report, ...patch } } : d));
     try {
@@ -131,8 +137,14 @@ function ReportView({ data, onClose }: { data: ReportDetail; onClose: () => void
       qc.invalidateQueries({ queryKey: ["org", orgId, "reports"] });
       qc.invalidateQueries({ queryKey: ["org", orgId, "projects"] });
       if (undoable) {
-        const before = patch.status ? { status: r.status } : { priority: r.priority };
-        const text = patch.status ? `Marked as ${statusLabels[patch.status].toLowerCase()}` : `Set priority to ${priorityLabels[patch.priority!].toLowerCase()}`;
+        const before = patch.status ? { status: r.status } : patch.priority ? { priority: r.priority } : { assigneeId: r.assigneeId };
+        const text = patch.status
+          ? `Marked as ${statusLabels[patch.status].toLowerCase()}`
+          : patch.priority
+            ? `Set priority to ${priorityLabels[patch.priority].toLowerCase()}`
+            : patch.assigneeId
+              ? "Assigned"
+              : "Unassigned";
         toast(text, { label: "Undo", run: () => update(before, false) });
       }
     } catch (err) {
@@ -172,6 +184,9 @@ function ReportView({ data, onClose }: { data: ReportDetail; onClose: () => void
 
   const ctx = r.context ?? {};
   const browser = [r.browser ?? ctx.browser, ctx.os, ctx.device].filter(Boolean).join(" · ");
+  /** The report's images, in order, so the lightbox can move between them. */
+  const images = attachments.filter((a) => a.contentType.startsWith("image/")).map((a) => ({ id: a.id, filename: a.filename, url: `/api${path(`/attachments/${a.id}`)}` }));
+
   const rows: Array<[string, React.ReactNode]> = [
     ["Project", <button className="hover:underline underline-offset-2" onClick={() => navigate(`/projects/${r.project.id}`)}>{r.project.name}</button>],
     ["Source", sourceLabel(r.source)],
@@ -217,6 +232,11 @@ function ReportView({ data, onClose }: { data: ReportDetail; onClose: () => void
             }
             items={priorities.map((p) => ({ label: priorityLabels[p], checked: p === r.priority, onSelect: () => p !== r.priority && update({ priority: p }) }))}
           />
+          <AssigneeMenu
+            assigneeId={r.assigneeId}
+            assignee={r.assignee}
+            onPick={(id) => update({ assigneeId: id })}
+          />
           <Menu
             trigger={<IconButton icon={MenuDotsIcon} label="More actions" size="sm" />}
             items={[
@@ -230,6 +250,8 @@ function ReportView({ data, onClose }: { data: ReportDetail; onClose: () => void
           <IconButton icon={CloseIcon} label="Close" size="sm" onClick={onClose} />
         </div>
       </div>
+
+      {viewing !== null && images[viewing] && <Lightbox images={images} startAt={viewing} onClose={() => setViewing(null)} />}
 
       <div className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-6">
         {group && (
@@ -259,6 +281,8 @@ function ReportView({ data, onClose }: { data: ReportDetail; onClose: () => void
           </div>
         </section>
 
+        <Notes reportId={r.id} notes={data.notes ?? []} />
+
         {attachments.length > 0 && (
           <section>
             <h3 className="section-title">Attachments</h3>
@@ -266,13 +290,19 @@ function ReportView({ data, onClose }: { data: ReportDetail; onClose: () => void
               {attachments.map((a) => {
                 const url = `/api${path(`/attachments/${a.id}`)}`;
                 return a.contentType.startsWith("image/") ? (
-                  <a key={a.id} href={url} target="_blank" rel="noopener" className="block rounded-md border border-border overflow-hidden bg-sunken hover:border-border-strong">
+                  <button
+                    key={a.id}
+                    type="button"
+                    className="block w-full text-left rounded-md border border-border overflow-hidden bg-sunken hover:border-border-strong"
+                    onClick={() => setViewing(images.findIndex((i) => i.id === a.id))}
+                    aria-label={`Open ${a.filename} full size`}
+                  >
                     <img src={url} alt={a.filename} loading="lazy" className="block max-h-[280px] w-full object-contain" />
                     <span className="flex items-center justify-between px-2.5 py-1.5 text-xs text-text-3 border-t border-border">
                       <span className="truncate">{a.filename}</span>
                       <span className="tabular">{bytes(a.sizeBytes)}</span>
                     </span>
-                  </a>
+                  </button>
                 ) : (
                   <div key={a.id} className="flex items-center gap-2 rounded-md border border-border px-2.5 h-9 text-sm">
                     <DocumentTextIcon size={14} className="text-text-3" />

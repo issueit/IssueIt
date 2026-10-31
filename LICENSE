@@ -1,0 +1,19 @@
+Issueit
+Copyright (c) 2026 Issueit. All rights reserved.
+
+This repository is the private source of the hosted Issueit service. It is
+not licensed for use, copying, modification or redistribution.
+
+Two parts of Issueit are published under open licences, and those published
+copies are the ones to use:
+
+  * The self-hosted edition, exported from this repository by
+    scripts/publish-oss.mjs, is published under the GNU Affero General
+    Public License, version 3. A copy of that licence is in
+    scripts/oss/LICENSE.
+
+  * The client libraries — the issueit command line, @issueit/mcp,
+    @issueit/node and @issueit/react — are published under the MIT licence,
+    as stated in each package's package.json.
+
+Nothing here grants any right to the Issueit name or marks.

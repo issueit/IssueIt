@@ -5,7 +5,7 @@ import { OrgProvider, useMe } from "./lib/session";
 import { ToastHost } from "./components/ui/Toast";
 import { DialogHost } from "./components/ui/Dialog";
 import { Shell } from "./components/app/Shell";
-import { CreateOrganisation, Login, Signup } from "./pages/auth/Auth";
+import { CreateOrganisation, Forgot, Login, Reset, Signup, VerifyEmail } from "./pages/auth/Auth";
 import { InvitePage } from "./pages/auth/Invite";
 import { DevicePage } from "./pages/auth/Device";
 import { InboxPage } from "./pages/inbox/Inbox";
@@ -26,6 +26,8 @@ import { OrganisationSettings } from "./pages/settings/Organisation";
 import { MembersSettings } from "./pages/settings/Members";
 import { ConnectionsSettings } from "./pages/settings/Connections";
 import { AccountSettings } from "./pages/settings/Account";
+import { BillingSettings } from "./pages/settings/Billing";
+import { NotificationSettings } from "./pages/settings/Notifications";
 import { AppearanceSettings } from "./pages/settings/AppearanceSettings";
 import { DashboardSettings } from "./pages/settings/DashboardSettings";
 import { DeliverySettings } from "./pages/settings/DeliverySettings";
@@ -46,6 +48,7 @@ const Blog = lazy(() => import("./pages/site/pages/Blog"));
 const Careers = lazy(() => import("./pages/site/pages/Careers"));
 const Legal = lazy(() => import("./pages/site/pages/Legal"));
 const Platform = lazy(() => import("./pages/site/pages/Platform"));
+const Pricing = lazy(() => import("./pages/site/pages/Pricing"));
 
 /** Public pages load on demand; the dashboard never pays for them. */
 const page = (Page: ComponentType) => (
@@ -70,6 +73,7 @@ export function App() {
         <Route path="/blog/:slug?" element={page(Blog)} />
         <Route path="/careers" element={page(Careers)} />
         <Route path="/platform" element={page(Platform)} />
+        <Route path="/pricing" element={page(Pricing)} />
         <Route path="/legal" element={<Navigate to="/legal/terms" replace />} />
         <Route path="/legal/:doc" element={page(Legal)} />
         <Route path="/terms" element={<Navigate to="/legal/terms" replace />} />
@@ -77,6 +81,9 @@ export function App() {
         <Route path="/cookies" element={<Navigate to="/legal/cookies" replace />} />
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
+        <Route path="/forgot" element={<Forgot />} />
+        <Route path="/reset" element={<Reset />} />
+        <Route path="/verify" element={<VerifyEmail />} />
         <Route path="/invite/:token" element={<InvitePage />} />
         <Route path="/device" element={<DevicePage />} />
         <Route
@@ -117,6 +124,8 @@ export function App() {
               <Route path="members" element={<MembersSettings />} />
               <Route path="connections" element={<ConnectionsSettings />} />
               <Route path="usage" element={<UsageSettings />} />
+              <Route path="billing" element={<BillingSettings />} />
+              <Route path="notifications" element={<NotificationSettings />} />
               <Route path="delivery" element={<DeliverySettings />} />
               <Route path="tokens" element={<TokensSettings />} />
               <Route path="audit" element={<AuditSettings />} />

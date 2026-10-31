@@ -7,7 +7,16 @@ export type DeliveryStatus = "pending" | "delivering" | "delivered" | "retrying"
 export type WebhookEvent = "report.created" | "report.updated" | "report.resolved" | "report.closed" | "report.duplicate";
 
 export type Me = {
-  user: { id: string; name: string; email: string; createdAt: string };
+  user: {
+    id: string;
+    name: string;
+    email: string;
+    createdAt: string;
+    /** False until the address has been proven. A nag, never a lock. */
+    emailVerified: boolean;
+    twoFactor: boolean;
+    recoveryCodesLeft: number;
+  };
   organisations: Array<{ id: string; name: string; role: Role }>;
 };
 
@@ -153,6 +162,9 @@ export type ReportListItem = {
   /** Other reports that joined this one. */
   duplicateCount: number;
   lastSeenAt: string | null;
+  assigneeId: string | null;
+  assigneeName: string | null;
+  noteCount: number;
 };
 
 export type ConsoleEntry = { t: number; level: "error" | "warn" | "info" | "log"; message: string; stack?: string };
@@ -196,7 +208,12 @@ export type ReportDetail = {
     updatedAt: string;
     projectId: string;
     project: { id: string; name: string };
+    assigneeId: string | null;
+    assignee: { id: string; name: string; email: string } | null;
+    release?: string | null;
   };
+  /** What the team has said about it, between themselves. */
+  notes: ReportNote[];
   /** The report this one joined, when it's a duplicate. */
   group: { id: string; number: number; title: string; status: ReportStatus; duplicateCount: number } | null;
   duplicates: Array<{ id: string; number: number; title: string; reporterEmail: string | null; reporterName: string | null; pageUrl: string | null; browser: string | null; createdAt: string }>;
@@ -219,6 +236,8 @@ export type ReportDetail = {
     provider: string;
   }>;
 };
+
+export type ReportNote = { id: string; author: string; userId: string | null; body: string; createdAt: string; updatedAt: string };
 
 export type TokenField = { key: string; label: string; hint?: string; placeholder?: string; secret?: boolean; optional?: boolean };
 

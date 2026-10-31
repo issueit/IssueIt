@@ -18,7 +18,7 @@ export const useProjects = () => useOrgQuery<{ projects: ProjectSummary[] }>("pr
 export const useProject = (id: string) =>
   useOrgQuery<{ project: Project; links: ProjectLinks; stats: { total: number; open: number; week: number }; mail: MailInfo }>("projects", [id], `/projects/${id}`);
 
-export type ReportFilters = { project?: string; status: string; priority?: Priority | ""; q?: string; delivery?: string };
+export type ReportFilters = { project?: string; status: string; priority?: Priority | ""; q?: string; delivery?: string; assignee?: string };
 
 export function useReports(filters: ReportFilters) {
   const { orgId, path } = useOrg();
