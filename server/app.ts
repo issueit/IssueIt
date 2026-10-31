@@ -136,27 +136,29 @@ export function createApp() {
   app.route("/api/orgs", orgRoutes);
   /**
    * The plans, public so the pricing page states what is actually sold
-   * rather than a copy of it that drifts. Empty on a self-hosted install.
+   * rather than a copy of it that drifts. Always listed, because the
+   * marketing pages describe the hosted service wherever they are served
+   * from; `edition` says whether this install is the one selling them.
    */
   app.get("/api/plans", (c) => {
     c.header("cache-control", "public, max-age=300");
     return c.json({
       edition: config.edition,
       trialDays: config.trialDays,
-      plans: hosted
-        ? planList.map((p) => ({
-            id: p.id,
-            name: p.name,
-            blurb: p.blurb,
-            who: p.who,
-            monthly: p.monthly,
-            yearly: p.yearly,
-            monthlyLabel: p.monthly ? money(p.monthly) : "Free",
-            yearlyLabel: p.yearly ? money(p.yearly) : "Free",
-            limits: p.limits,
-            features: p.features,
-          }))
-        : [],
+      /** True when this install can actually take the money. */
+      billable: hosted,
+      plans: planList.map((p) => ({
+        id: p.id,
+        name: p.name,
+        blurb: p.blurb,
+        who: p.who,
+        monthly: p.monthly,
+        yearly: p.yearly,
+        monthlyLabel: p.monthly ? money(p.monthly) : "Free",
+        yearlyLabel: p.yearly ? money(p.yearly) : "Free",
+        limits: p.limits,
+        features: p.features,
+      })),
     });
   });
   /** The integration catalogue, public so the docs and the marketing site list what's live. */

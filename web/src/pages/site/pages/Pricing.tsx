@@ -49,11 +49,13 @@ export default function Pricing() {
   const [interval, setInterval] = useState<"month" | "year">("month");
   const pricing = useQuery({
     queryKey: ["plans"],
-    queryFn: () => api<{ edition: string; trialDays: number; plans: Plan[] }>("/plans"),
+    queryFn: () => api<{ edition: string; billable: boolean; trialDays: number; plans: Plan[] }>("/plans"),
     staleTime: 300_000,
   });
   const plans = pricing.data?.plans ?? [];
   const trialDays = pricing.data?.trialDays ?? 14;
+  /** False when these are the hosted service's plans seen from somebody's own install. */
+  const here = pricing.data?.billable !== false;
 
   return (
     <SitePage title="Pricing">
@@ -123,21 +125,34 @@ export default function Pricing() {
                           </li>
                         ))}
                     </ul>
-                    <Link to="/signup" className={`btn btn--sm site-btn ${p.id === "team" ? "btn--primary" : ""}`}>
-                      {p.monthly ? `Start with ${p.name}` : "Start free"}
-                    </Link>
+                    {here ? (
+                      <Link to="/signup" className={`btn btn--sm site-btn ${p.id === "team" ? "btn--primary" : ""}`}>
+                        {p.monthly ? `Start with ${p.name}` : "Start free"}
+                      </Link>
+                    ) : (
+                      <a href={`https://issueit.app/pricing`} className={`btn btn--sm site-btn ${p.id === "team" ? "btn--primary" : ""}`}>
+                        {p.monthly ? `Start with ${p.name}` : "Start free"}
+                      </a>
+                    )}
                   </div>
                 ))}
               </div>
               <Note>
-                Every new organisation starts with {trialDays} days of Team, no card. When it runs out you move to Free and keep everything — a smaller allowance, not a
-                locked account.
+                {here ? (
+                  <>
+                    Every new organisation starts with {trialDays} days of Team, no card. When it runs out you move to Free and keep everything — a smaller allowance, not a
+                    locked account.
+                  </>
+                ) : (
+                  <>
+                    These are the plans on the hosted service at issueit.app. <strong>This install isn't selling anything</strong>: it has every feature on, and the only
+                    limits are the ones its operator set. See <Link to="/platform#limits">Limits</Link>.
+                  </>
+                )}
               </Note>
             </>
           ) : (
-            <p>
-              This install doesn't sell plans. Limits come from its operator's own settings — see <Link to="/platform#limits">Platform</Link>.
-            </p>
+            <p>Loading the plans…</p>
           )}
         </Section>
 
