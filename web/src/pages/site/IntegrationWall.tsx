@@ -5,19 +5,24 @@ import type { ProviderCategory } from "../../lib/types";
 
 /**
  * Every live integration, read from the server so the wall never drifts from
- * what the dashboard offers. The cards float past in lanes running opposite
- * ways, full width of the screen, and a lane stops when you point at it.
+ * what the dashboard offers. The cards float past in four lanes running
+ * opposite ways, filling the screen, and never stop under the pointer.
  *
  * Each card is named rather than left as a bare mark: only about half the
  * catalogue has a brand mark, and a wall of repeated fallback glyphs says
  * less than a wall of names. The catalogue arrives grouped by category, so
  * the lanes are dealt round-robin to mix the kinds of service together.
  *
- * Only the four lanes animate, and only by transform, so this costs four
- * composited layers rather than a repaint of 135 cards.
+ * Each card crosses its lane on its own staggered animation rather than
+ * riding one long track. A track wide enough to hold a lane is a single
+ * composited layer some 7,900px across, and at this card size WebKit
+ * crashed on about one long scroll in four. Cards that cross on their own
+ * are clipped by the lane, so nothing off screen is ever drawn.
  */
 
 const LANES = 4;
+/** Spacing between cards, as a percentage of a card's width. */
+const PITCH = 106;
 
 export function IntegrationWall() {
   const catalogue = useCatalogue();
@@ -41,6 +46,11 @@ export function IntegrationWall() {
     .sort((a, b) => b[1] - a[1]);
   const shown = focus ? kinds.find(([c]) => c === focus)?.[1] : null;
   const lanes = Array.from({ length: LANES }, (_, lane) => all.filter((_, i) => i % LANES === lane));
+  // One set of keyframes per lane length. The endpoints are percentages of a
+  // card's own width, so they hold no variables: a var() inside an animated
+  // calc() is re-resolved every frame and cost 130ms/s of style recalc.
+  const counts = [...new Set(lanes.map((l) => l.length))];
+  const keyframes = counts.map((n) => `@keyframes cross-${n}{from{transform:translateX(${(n - 1) * PITCH}%)}to{transform:translateX(-${PITCH}%)}}`).join("");
 
   return (
     <div className="wall" data-rv>
@@ -58,22 +68,16 @@ export function IntegrationWall() {
           ))}
         </div>
       </div>
+      <style>{keyframes}</style>
       <div ref={rows} className="wall-rows" data-focus={focus ?? undefined} data-live={live || undefined}>
         {lanes.map((lane, i) => (
-          <div key={i} className="wall-lane" data-reverse={i % 2 === 1 || undefined} style={{ "--dur": `${104 + i * 11}s` } as CSSProperties}>
-            <div className="wall-track">
-              {/* Two copies, so the lane can loop by sliding exactly half its width. */}
-              {[0, 1].map((copy) => (
-                <div key={copy} className="wall-set" aria-hidden={copy === 1 || undefined}>
-                  {lane.map((p) => (
-                    <div key={p.id} className="wall-card" data-lit={focus === p.category || undefined} title={p.summary}>
-                      <BrandIcon provider={p.id} name={p.name} size={26} fallback="monogram" />
-                      <span>{p.name}</span>
-                    </div>
-                  ))}
-                </div>
-              ))}
-            </div>
+          <div key={i} className="wall-lane" data-reverse={i % 2 === 1 || undefined} style={{ "--dur": `${150 + i * 14}s`, "--count": lane.length } as CSSProperties}>
+            {lane.map((p, slot) => (
+              <div key={p.id} className="wall-card" data-lit={focus === p.category || undefined} title={p.summary} style={{ "--i": slot, animationName: `cross-${lane.length}` } as CSSProperties}>
+                <BrandIcon provider={p.id} name={p.name} size="var(--wall-mark)" fallback="monogram" />
+                <span>{p.name}</span>
+              </div>
+            ))}
           </div>
         ))}
       </div>

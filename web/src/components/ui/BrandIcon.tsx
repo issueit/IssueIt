@@ -231,19 +231,42 @@ const categoryIcons: Record<Category, ComponentType<{ size?: number; "aria-label
   webhook: Routing2Icon,
 };
 
-export function BrandIcon({ provider, name, size = 16, framed, fallback = "category" }: { provider: string; name?: string; size?: number; framed?: boolean; fallback?: "category" | "monogram" }) {
+/** size may be a CSS length, so a caller can scale marks with the viewport. */
+const scale = (size: number | string, by: number, plus = 0) => (typeof size === "number" ? Math.round(size * by) + plus : `calc(${size} * ${by} + ${plus}px)`);
+
+export function BrandIcon({
+  provider,
+  name,
+  size = 16,
+  framed,
+  fallback = "category",
+}: {
+  provider: string;
+  name?: string;
+  size?: number | string;
+  framed?: boolean;
+  fallback?: "category" | "monogram";
+}) {
   const mark = marks[provider] ?? "webhook";
   let icon;
   if (typeof mark === "string" && fallback === "monogram") {
     // The first character as the brand writes it, so n8n and ntfy stay lower case.
     icon = (
-      <span role="img" aria-label={name ?? provider} className="grid place-items-center font-mono leading-none" style={{ width: size, height: size, fontSize: Math.round(size * 0.78) }}>
+      <span role="img" aria-label={name ?? provider} className="grid place-items-center font-mono leading-none" style={{ width: size, height: size, fontSize: scale(size, 0.78) }}>
         {(name ?? provider).trim().charAt(0)}
       </span>
     );
   } else if (typeof mark === "string") {
     const Icon = categoryIcons[mark];
-    icon = <Icon size={size} aria-label={name ?? provider} />;
+    // Solar icons size by number, so a CSS length gets a box to fill instead.
+    icon =
+      typeof size === "number" ? (
+        <Icon size={size} aria-label={name ?? provider} />
+      ) : (
+        <span className="grid place-items-center [&>svg]:h-full [&>svg]:w-full" style={{ width: size, height: size }}>
+          <Icon aria-label={name ?? provider} />
+        </span>
+      );
   } else {
     icon = (
       <svg role="img" aria-label={name ?? mark.title} width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
@@ -253,7 +276,7 @@ export function BrandIcon({ provider, name, size = 16, framed, fallback = "categ
   }
   if (!framed) return icon;
   return (
-    <span className="grid place-items-center rounded-md border border-border-subtle bg-surface-3 text-text-2" style={{ width: size + 14, height: size + 14 }}>
+    <span className="grid place-items-center rounded-md border border-border-subtle bg-surface-3 text-text-2" style={{ width: scale(size, 1, 14), height: scale(size, 1, 14) }}>
       {icon}
     </span>
   );

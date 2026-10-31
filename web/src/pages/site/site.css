@@ -3065,7 +3065,7 @@ br.br-sm {
     opacity: 1;
   }
   .marquee-track,
-  .wall-track {
+  .wall-card {
     animation: none !important;
   }
   .about-numbers > div {
@@ -3133,49 +3133,72 @@ br.br-sm {
 /* Full width of the screen: .site has overflow-x: clip, so breaking out
    of the wrap here can't make the page scroll sideways. */
 .wall-rows {
+  /* Four rows plus their gaps come to about 94% of the viewport height. */
+  --wall-card: clamp(132px, 22.5vh, 280px);
+  --wall-mark: clamp(30px, 6.4vh, 78px);
+  position: relative;
   display: grid;
   gap: 12px;
   width: 100vw;
   margin-inline: calc(50% - 50vw);
   padding-top: 4px;
 }
+/* Two strips rather than a mask on each lane: masking a layer this wide
+   cost 15fps, and these are static and free. */
+.wall-rows::before,
+.wall-rows::after {
+  content: "";
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  bottom: 0;
+  width: clamp(48px, 7vw, 170px);
+  pointer-events: none;
+}
+.wall-rows::before {
+  left: 0;
+  background: linear-gradient(90deg, var(--bg), transparent);
+}
+.wall-rows::after {
+  right: 0;
+  background: linear-gradient(270deg, var(--bg), transparent);
+}
 .wall-lane {
+  position: relative;
+  height: var(--wall-card);
   overflow: hidden;
-  mask-image: linear-gradient(90deg, transparent, black 7%, black 93%, transparent);
-  -webkit-mask-image: linear-gradient(90deg, transparent, black 7%, black 93%, transparent);
 }
-.wall-track {
-  display: flex;
-  width: max-content;
-  animation: marquee var(--dur) linear infinite;
-}
-.wall-lane[data-reverse] .wall-track {
-  animation-direction: reverse;
-}
-/* Still while off screen, and still while you're reading one. */
-.wall-rows:not([data-live]) .wall-track,
-.wall-lane:hover .wall-track {
+/* Still while off screen. They keep moving under the pointer on purpose. */
+.wall-rows:not([data-live]) .wall-card {
   animation-play-state: paused;
 }
-.wall-set {
-  display: flex;
-  gap: 12px;
-  padding-right: 12px;
+.wall-lane[data-reverse] .wall-card {
+  animation-direction: reverse;
 }
 .wall-card {
+  position: absolute;
+  top: 0;
+  left: 0;
+  /* Every card runs the same path a cycle apart, so they stay one pitch
+     apart for ever and each wraps on its own, off screen at both ends.
+     The keyframes come from the component: one set per lane length. */
+  animation: var(--dur) linear infinite;
+  animation-delay: calc(var(--dur) / var(--count) * var(--i) * -1);
   display: grid;
   align-content: center;
   justify-items: center;
-  gap: 11px;
-  width: 132px;
-  height: 132px;
-  padding: 12px;
+  gap: 14px;
+  width: var(--wall-card);
+  height: var(--wall-card);
+  padding: 16px;
   border: 1px solid var(--border);
   border-radius: var(--r-xl);
   background: var(--surface);
-  box-shadow: var(--shadow-sm);
+  /* No shadow. A rounded drop shadow on cards this large, 135 of them each
+     on its own animation, is what finally tips WebKit over during a long
+     scroll. The border carries the edge on its own. */
   color: var(--text-2);
-  font-size: var(--fs-sm);
+  font-size: var(--fs-md);
   line-height: 1.35;
   text-align: center;
   transition:
@@ -3203,19 +3226,27 @@ br.br-sm {
   color: var(--text);
 }
 @media (max-width: 640px) {
+  .wall-rows {
+    --wall-card: clamp(104px, 16vh, 156px);
+    --wall-mark: clamp(22px, 4.6vh, 44px);
+  }
   .wall-card {
-    width: 108px;
-    height: 108px;
     gap: 9px;
+    padding: 10px;
+    font-size: var(--fs-xs);
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  /* The lanes hold still, so a still lane would hide everything past its
-     right edge. Let it be scrolled by hand instead. */
+  /* Nothing moves, so the cards can't be stacked at the lane's left edge.
+     Lay them out in a row that can be scrolled by hand. */
   .wall-lane {
+    display: flex;
+    gap: 12px;
     overflow-x: auto;
-    mask-image: none;
-    -webkit-mask-image: none;
+  }
+  .wall-card {
+    position: static;
+    flex: none;
   }
 }
 
