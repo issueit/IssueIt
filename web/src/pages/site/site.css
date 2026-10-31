@@ -3379,3 +3379,14 @@ br.br-sm {
   margin-top: auto;
   justify-content: center;
 }
+/* These sit inside an article, and `.prose a` is the more specific selector,
+   so the buttons need their own colours back or the primary one reads as
+   dark ink on a dark fill. */
+.price-card .btn,
+.price-card .btn:hover {
+  color: var(--text);
+}
+.price-card .btn--primary,
+.price-card .btn--primary:hover {
+  color: var(--accent-fg);
+}

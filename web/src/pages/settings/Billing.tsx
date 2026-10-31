@@ -176,7 +176,9 @@ export function BillingSettings() {
                 ? `Renews ${date(b.subscription.periodEnd)}, ${b.subscription.interval === "year" ? "yearly" : "monthly"}.`
                 : b.trialDaysLeft !== null
                   ? "A trial is a plan with an end date: choose one before it runs out and nothing changes."
-                  : "Free, for as long as you like."
+                  : b.plan === "free"
+                    ? "Free, for as long as you like."
+                    : "Arranged for you, with nothing to pay."
           }
         >
           {b.subscription.manageable && (
