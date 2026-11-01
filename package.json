@@ -16,6 +16,7 @@
     "db:generate": "drizzle-kit generate",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
+    "test:db": "scripts/smoke/run.sh",
     "build:mcp": "npm --prefix mcp run build",
     "build:cli": "npm --prefix cli run build",
     "build:sdk": "npm --prefix sdk/node run build && npm --prefix sdk/react run build"

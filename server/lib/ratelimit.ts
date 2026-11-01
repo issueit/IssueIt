@@ -1,4 +1,4 @@
-import { sql } from "drizzle-orm";
+import { sql, type SQL } from "drizzle-orm";
 import { db } from "../db";
 
 /**
@@ -51,25 +51,34 @@ export async function hitAll(limits: Limit[]): Promise<Verdict> {
   return { ok: false, retryAfter: Math.max(1, Math.ceil((until - Date.now()) / 1000)) };
 }
 
-/** One statement, every key: open a fresh window or add to the open one. */
+const commas = (parts: SQL[]) => sql.join(parts, sql.raw(", "));
+
+/**
+ * One statement, every key: open a fresh window or add to the open one.
+ *
+ * The rows are written out as a values list of scalar parameters rather than
+ * passed as two arrays. The driver doesn't bind a JavaScript array to an
+ * array parameter here — it unwraps a single-element one and then refuses the
+ * number inside it — and a limiter that throws is a limiter that isn't
+ * counting.
+ */
 async function bump(limits: Limit[]) {
   // The same key twice in one insert makes Postgres refuse the whole
   // statement, so a caller passing one limit twice gets it counted once.
   const unique = [...new Map(limits.map((l) => [l.key, l])).values()];
-  const keys = unique.map((l) => l.key);
-  const seconds = unique.map((l) => l.windowMs / 1000);
-  return db.execute<{ key: string; count: number; reset_at: Date }>(sql`
+  const values = unique.map((l) => sql`(${l.key}, 1, now() + make_interval(secs => ${l.windowMs / 1000}))`);
+  const rows = await db.execute<{ key: string; count: number; reset_at: string | Date }>(sql`
     insert into rate_limits (key, count, reset_at)
-    select k, 1, now() + make_interval(secs => s)
-    from unnest(${keys}::text[], ${seconds}::double precision[]) as t(k, s)
+    values ${commas(values)}
     on conflict (key) do update set
       count = case when rate_limits.reset_at <= now() then 1 else rate_limits.count + 1 end,
       reset_at = case when rate_limits.reset_at <= now() then excluded.reset_at else rate_limits.reset_at end
-    returning key, count, reset_at`).then((rows) => rows.map((row) => ({ key: row.key, count: Number(row.count), resetAt: new Date(row.reset_at) })));
+    returning key, count, reset_at`);
+  return rows.map((row) => ({ key: row.key, count: Number(row.count), resetAt: new Date(row.reset_at) }));
 }
 
 function unbump(keys: string[]) {
-  return db.execute(sql`update rate_limits set count = greatest(count - 1, 0) where key = any(${keys}::text[])`);
+  return db.execute(sql`update rate_limits set count = greatest(count - 1, 0) where key in (${commas(keys.map((k) => sql`${k}`))})`);
 }
 
 /** Deletes windows that have passed. Run from the nightly job. */
