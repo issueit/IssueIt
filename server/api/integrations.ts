@@ -8,7 +8,7 @@ import { publish } from "../lib/events";
 import { AppError, badRequest, notFound } from "../lib/errors";
 import { newId } from "../lib/ids";
 import { checkUrlShape, UnsafeUrlError } from "../lib/ssrf";
-import { assertRoom } from "../billing/entitlements";
+import { assertRoom, ownerVerified, verifyEmailFirst } from "../billing/entitlements";
 import { body, parse, type AppEnv } from "../http";
 import { describeProvider, getProvider, providers } from "../integrations";
 import { handleFor, loadConnection, markConnection } from "../integrations/connections";
@@ -276,6 +276,9 @@ export const destinationRoutes = new Hono<AppEnv>()
     const input = await body(c, destinationInput);
     const provider = getProvider(input.provider);
     if (!provider) throw badRequest("That service isn't supported.");
+    // A destination posts text of someone's choosing to an address of their
+    // choosing. Not until we know the account belongs to a real person.
+    if (!(await ownerVerified(c.get("orgId")))) throw verifyEmailFirst("sending reports on to another tool");
     await assertRoom(
       c.get("org"),
       "destinations",

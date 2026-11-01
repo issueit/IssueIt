@@ -43,6 +43,13 @@
       "when": 1793459301168,
       "tag": "0005_plans_and_notices",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1793565456131,
+      "tag": "0006_abuse_controls",
+      "breakpoints": true
     }
   ]
 }

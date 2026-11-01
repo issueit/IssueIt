@@ -1,13 +1,14 @@
 import { basicArticles } from "./content/basics";
 import { deliveryArticles } from "./content/delivery";
 import { accountArticles } from "./content/account";
+import { hostedArticles } from "../../hosted";
 import { categories, type Article, type CategoryId } from "./types";
 
 /**
  * Every support article, in one list. Order inside a category is reading
  * order, which is also the order they're listed in.
  */
-export const articles: Article[] = [...basicArticles, ...deliveryArticles, ...accountArticles];
+export const articles: Article[] = [...basicArticles, ...deliveryArticles, ...accountArticles, ...hostedArticles];
 
 export const articleBySlug = new Map(articles.map((a) => [a.slug, a]));
 

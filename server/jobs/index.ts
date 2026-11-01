@@ -1,5 +1,5 @@
 import { config } from "../config";
-import { endLapsedTrials, warnAboutTrials } from "../api/billing";
+import { hostedDaily } from "../hosted";
 import { runDigests } from "./digest";
 import { runRetention } from "./retention";
 
@@ -44,8 +44,10 @@ export async function runDaily() {
   try {
     if (config.jobs.retention) {
       const r = await runRetention();
-      if (r.attachments || r.reports || r.diagnostics) {
-        console.log(`[jobs] retention: ${r.attachments} attachments (${Math.round(r.bytes / 1024 / 1024)} MB), ${r.diagnostics} diagnostics, ${r.reports} reports`);
+      if (r.attachments || r.reports || r.diagnostics || r.spam) {
+        console.log(
+          `[jobs] retention: ${r.attachments} attachments (${Math.round(r.bytes / 1024 / 1024)} MB), ${r.diagnostics} diagnostics, ${r.reports} reports, ${r.spam} held as spam`,
+        );
       }
     }
   } catch (err) {
@@ -61,12 +63,14 @@ export async function runDaily() {
     console.error("[jobs] digests failed", err);
   }
 
-  try {
-    const warned = await warnAboutTrials();
-    const ended = await endLapsedTrials();
-    if (warned || ended) console.log(`[jobs] trials: ${warned} ending soon, ${ended} ended`);
-  } catch (err) {
-    console.error("[jobs] trials failed", err);
+  // Whatever this edition adds to the round: on the hosted service, trials.
+  for (const job of hostedDaily) {
+    try {
+      const said = await job.run();
+      if (said) console.log(`[jobs] ${job.name}: ${said}`);
+    } catch (err) {
+      console.error(`[jobs] ${job.name} failed`, err);
+    }
   }
   console.log(`[jobs] daily round done in ${Date.now() - started}ms`);
 }

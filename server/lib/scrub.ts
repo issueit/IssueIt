@@ -1,23 +1,14 @@
 /**
  * Removes things that look private from captured text: email addresses,
- * tokens, card numbers and the values in query strings. The widget does
- * this before sending; the server does it again, since not every report
- * comes from the widget.
+ * tokens, card numbers and the values in query strings. The rules themselves
+ * live in shared/scrub.ts, because the widget applies them in the browser
+ * first; what's here is the server's side of it — a project's own patterns,
+ * and the shorter form a diagnostic URL is stored in.
  */
 
-const patterns: Array<[RegExp, string]> = [
-  // Authorization header values.
-  [/\b(bearer|basic)\s+[^\s"'&,;]{4,}/gi, "$1 [redacted]"],
-  // "token=…", "refreshToken": "…", x-api-key: … and the like.
-  [/([\w-]*(?:token|secret|session|cookie|password|passwd|apikey|api[_-]key|auth|credential)[\w-]*)(["']?\s*[:=]\s*["']?)[^\s"'&,;]{4,}/gi, "$1$2[redacted]"],
-  // JSON Web Tokens.
-  [/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g, "[token]"],
-  [/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, "[email]"],
-  // 13 to 19 digits, optionally grouped: card numbers.
-  [/\b(?:\d[ -]?){12,18}\d\b/g, "[number]"],
-  // Long opaque strings: keys, hashes, session ids.
-  [/\b[A-Za-z0-9_-]{32,}\b/g, "[redacted]"],
-];
+import { scrubText } from "../../shared/scrub";
+
+export { scrubLink, scrubText } from "../../shared/scrub";
 
 /**
  * A project's own patterns, compiled once and reused. A pattern that doesn't
@@ -44,13 +35,6 @@ export function compilePatterns(extra: ExtraPattern[] | undefined): Array<[RegEx
   if (compiled.size > 200) compiled.clear();
   compiled.set(key, list);
   return list;
-}
-
-export function scrubText(value: string, max = 2000, extra: Array<[RegExp, string]> = []): string {
-  let out = value.slice(0, max * 2);
-  for (const [re, replacement] of patterns) out = out.replace(re, replacement);
-  for (const [re, replacement] of extra) out = out.replace(re, replacement);
-  return out.length > max ? `${out.slice(0, max - 1)}…` : out;
 }
 
 /** Keeps a URL's origin and path, and the names of its query parameters without their values. */

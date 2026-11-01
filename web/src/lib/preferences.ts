@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./api";
+import { setDateFormat } from "./format";
 import { useOrg } from "./session";
 import type { AnalyticsRange } from "./types";
 
@@ -56,6 +57,22 @@ export type DashboardPrefs = {
   mapList: boolean;
   topN: number;
   kpis: KpiId[];
+  /** How the cards themselves are drawn. */
+  cardStyle: "bordered" | "plain" | "raised";
+  /** The line naming the project and period above the grid. */
+  showCaption: boolean;
+  /** The figure beside each card's name. */
+  summaries: boolean;
+  /** Leaves out cards with nothing in them for this period. */
+  hideEmpty: boolean;
+  /** Whether a chart tooltip covers every series at that point or just the one under the pointer. */
+  tooltip: "all" | "one";
+  /** Markers on line and area charts. */
+  points: boolean;
+  /** Shares beside counts in ranked lists and tooltips. */
+  percent: boolean;
+  /** How wide each key number tile is, and so how many fit on a row. */
+  kpiSize: "s" | "m" | "l";
 };
 
 export type CardInfo = { title: string; description: string; kinds: ChartKind[]; kind: ChartKind; size: CardSize; visible: boolean };
@@ -112,9 +129,71 @@ export const defaultDashboard: DashboardPrefs = {
   mapList: true,
   topN: 6,
   kpis: ["reports", "open", "successRate", "latency", "failing", "reporters"],
+  cardStyle: "bordered",
+  showCaption: true,
+  summaries: true,
+  hideEmpty: false,
+  tooltip: "all",
+  points: true,
+  percent: false,
+  kpiSize: "m",
 };
 
-export type Preferences = { dashboard: DashboardPrefs };
+/**
+ * How the app behaves, as opposed to how the dashboard draws. Saved on the
+ * server beside the dashboard, so it follows you between browsers; the things
+ * that belong to the screen in front of you - theme, scale, density - stay in
+ * this browser instead, in lib/theme.ts.
+ */
+export type AppPrefs = {
+  /** Where signing in takes you. */
+  startPage: "dashboard" | "inbox" | "projects";
+  /** A report opens beside the list, or fills the page. */
+  reportsOpenIn: "panel" | "page";
+  /** The status filter a report list starts on. */
+  inboxStatus: "open" | "new" | "investigating" | "resolved" | "closed" | "all";
+  /** Ask before deleting reports. Off deletes straight away. */
+  confirmDeletes: boolean;
+  /** "2d ago", or the date and time in full. */
+  dates: "relative" | "absolute";
+  clock: "24h" | "12h";
+  weekStart: "mon" | "sun";
+  /** j, k, e, m and x in report lists. */
+  shortcuts: boolean;
+  /** Which details each report row carries under its title. */
+  rowMeta: RowMeta[];
+};
+
+export type RowMeta = "project" | "number" | "source" | "environment" | "reporter";
+
+export const rowMetaLabels: Record<RowMeta, string> = {
+  project: "Project",
+  number: "Report number",
+  source: "Where it came from",
+  environment: "Environment",
+  reporter: "Who reported it",
+};
+
+export const startPageLabels: Record<AppPrefs["startPage"], string> = { dashboard: "Dashboard", inbox: "Inbox", projects: "Projects" };
+
+export const defaultApp: AppPrefs = {
+  startPage: "dashboard",
+  reportsOpenIn: "panel",
+  inboxStatus: "open",
+  confirmDeletes: true,
+  dates: "relative",
+  clock: "24h",
+  weekStart: "mon",
+  shortcuts: true,
+  rowMeta: ["project", "number", "source", "environment", "reporter"],
+};
+
+export type Preferences = { dashboard: DashboardPrefs; app: AppPrefs };
+
+function normaliseApp(saved: Partial<AppPrefs> | undefined): AppPrefs {
+  const merged = { ...defaultApp, ...(saved ?? {}) };
+  return { ...merged, rowMeta: (merged.rowMeta ?? []).filter((m) => m in rowMetaLabels) };
+}
 
 /** Saved cards keep their order and settings; unknown ones drop, new ones join at the end. */
 function normaliseDashboard(saved: Partial<DashboardPrefs> | undefined): DashboardPrefs {
@@ -142,7 +221,11 @@ export function usePreferences() {
     staleTime: Infinity,
   });
   const timer = useRef<number | null>(null);
+  const appTimer = useRef<number | null>(null);
   const dashboard = useMemo(() => normaliseDashboard(query.data?.preferences.dashboard as Partial<DashboardPrefs> | undefined), [query.data]);
+  const app = useMemo(() => normaliseApp(query.data?.preferences.app as Partial<AppPrefs> | undefined), [query.data]);
+  // Dates are written by a plain function, not a hook, so it is told here.
+  setDateFormat(app);
 
   /** Applies at once; saves shortly after the last change so dragging a slider doesn't flood the server. */
   const updateDashboard = useCallback(
@@ -164,7 +247,26 @@ export function usePreferences() {
 
   const resetDashboard = useCallback(() => updateDashboard(() => defaultDashboard), [updateDashboard]);
 
-  return { ready: !query.isPending, dashboard, updateDashboard, resetDashboard };
+  /** The same save-shortly-after pattern, for the app's own settings. */
+  const updateApp = useCallback(
+    (change: Partial<AppPrefs>) => {
+      let next: Record<string, unknown> = {};
+      qc.setQueryData<{ preferences: Record<string, unknown> }>(key, (old) => {
+        const current = normaliseApp(old?.preferences.app as Partial<AppPrefs> | undefined);
+        next = { ...(old?.preferences ?? {}), app: { ...current, ...change } };
+        return { preferences: next };
+      });
+      if (appTimer.current) window.clearTimeout(appTimer.current);
+      appTimer.current = window.setTimeout(() => {
+        void api(path("/preferences"), { method: "PUT", body: { preferences: next } }).catch(() => qc.invalidateQueries({ queryKey: key }));
+      }, 450);
+    },
+    [qc, key, path],
+  );
+
+  const resetApp = useCallback(() => updateApp(defaultApp), [updateApp]);
+
+  return { ready: !query.isPending, dashboard, updateDashboard, resetDashboard, app, updateApp, resetApp };
 }
 
 /* ------------------------------------------------------------------ shared by the dashboard and its settings */
@@ -185,6 +287,20 @@ export const kindLabels: Record<ChartKind, string> = {
   table: "Table",
 };
 export const sizeLabels: Record<CardSize, string> = { s: "A third", m: "Half", l: "Two thirds", xl: "Full width" };
+export const cardStyleLabels: Record<DashboardPrefs["cardStyle"], string> = { bordered: "Outlined", plain: "Plain", raised: "Raised" };
+export const kpiSizeLabels: Record<DashboardPrefs["kpiSize"], string> = { s: "Small", m: "Medium", l: "Large" };
+/** The narrowest a key number tile may be, which is what decides how many fit. */
+export const kpiMinWidth: Record<DashboardPrefs["kpiSize"], number> = { s: 112, m: 136, l: 176 };
+
+/** Moves a key number within the row, so the ones that matter come first. */
+export function moveKpi(d: DashboardPrefs, id: KpiId, by: number): DashboardPrefs {
+  const kpis = [...d.kpis];
+  const from = kpis.indexOf(id);
+  const to = from + by;
+  if (from < 0 || to < 0 || to >= kpis.length) return d;
+  [kpis[from], kpis[to]] = [kpis[to], kpis[from]];
+  return { ...d, kpis };
+}
 
 export function moveCard(d: DashboardPrefs, id: CardId, to: number): DashboardPrefs {
   const cards = [...d.cards];

@@ -1,13 +1,14 @@
 import { useMemo, type ReactNode } from "react";
 import { Link } from "react-router";
 import type { ChartConfiguration, ChartDataset } from "chart.js";
-import type { CardId, ChartKind, DashboardPrefs, KpiId } from "../../lib/preferences";
-import { kpiLabels } from "../../lib/preferences";
+import type { AppPrefs, CardId, ChartKind, DashboardPrefs, KpiId } from "../../lib/preferences";
+import { kpiLabels, kpiMinWidth } from "../../lib/preferences";
 import type { Analytics, Count, Destination, ReportListItem } from "../../lib/types";
 import { relativeTime } from "../../lib/format";
 import { BrandIcon } from "../../components/ui/BrandIcon";
 import { StatusPill } from "../../components/ui/feedback";
 import { PriorityLabel, ReportStatusPill } from "../../components/app/status";
+import { TipGroup } from "../../components/ui/Tooltip";
 import { baseOptions, ChartCanvas, type VizTheme } from "./chart";
 import { WorldMap } from "./WorldMap";
 import { bucketLabel, countryName, delta, formatMs, formatNumber, priorityLabel, priorityOrder, sourceLabel, statusLabel, topWithOther } from "./format";
@@ -15,6 +16,8 @@ import { bucketLabel, countryName, delta, formatMs, formatNumber, priorityLabel,
 export type CardContext = {
   data: Analytics;
   prefs: DashboardPrefs;
+  /** Settings shared with the rest of the app, such as how an hour is written. */
+  app: AppPrefs;
   theme: VizTheme;
   height: number;
   kind: ChartKind;
@@ -59,6 +62,12 @@ export function DataTable({ columns, rows }: { columns: string[]; rows: Array<Ar
   );
 }
 
+/** A count, and - if asked for - what share of the whole it is. */
+export function countAndShare(n: number, total: number, prefs: DashboardPrefs) {
+  const count = formatNumber(n, prefs.numbers);
+  return prefs.percent && total ? `${count} · ${Math.round((n / total) * 100)}%` : count;
+}
+
 export function Empty({ children = "Nothing in this period." }: { children?: ReactNode }) {
   return <div className="viz-empty">{children}</div>;
 }
@@ -83,7 +92,7 @@ function Breakdown({ rows, ctx, label, ordered }: { rows: Row[]; ctx: CardContex
         type: kind,
         data: { labels, datasets: [{ label, data: values, backgroundColor: rows.map((r) => r.color ?? theme.series[0]), borderColor: theme.surface, borderWidth: 2, hoverOffset: 3 }] },
         options: {
-          ...baseOptions(theme, { grid: false, animations: prefs.animations, legend: prefs.legend, axes: false }),
+          ...baseOptions(theme, { grid: false, animations: prefs.animations, legend: prefs.legend, axes: false, tooltip: prefs.tooltip }),
           interaction: { mode: "nearest", intersect: true },
           cutout: kind === "doughnut" ? "64%" : 0,
         } as ChartConfiguration<"doughnut">["options"],
@@ -98,14 +107,18 @@ function Breakdown({ rows, ctx, label, ordered }: { rows: Row[]; ctx: CardContex
         datasets: [{ label, data: values, backgroundColor: rows.map((r) => (ordered ? (r.color ?? theme.series[0]) : theme.series[0])), borderRadius: 4, borderSkipped: "start", maxBarThickness: 22, categoryPercentage: 0.8 }],
       },
       options: {
-        ...baseOptions(theme, { grid: prefs.grid, animations: prefs.animations, legend: false, horizontal, values: prefs.values }),
+        ...baseOptions(theme, { grid: prefs.grid, animations: prefs.animations, legend: false, horizontal, values: prefs.values, tooltip: prefs.tooltip }),
         plugins: {
           ...baseOptions(theme, { grid: prefs.grid, animations: prefs.animations, legend: false, values: prefs.values }).plugins,
-          tooltip: { ...baseOptions(theme, { grid: false, animations: false, legend: false }).plugins.tooltip, displayColors: false },
+          tooltip: {
+            ...baseOptions(theme, { grid: false, animations: false, legend: false }).plugins.tooltip,
+            displayColors: false,
+            callbacks: { label: (item) => countAndShare(Number(item.raw), total, prefs) },
+          },
         },
       } as ChartConfiguration<"bar">["options"],
     };
-  }, [rows, kind, theme, prefs.animations, prefs.legend, prefs.grid, prefs.values, label, ordered]);
+  }, [rows, kind, theme, prefs.animations, prefs.legend, prefs.grid, prefs.values, prefs.tooltip, prefs.percent, prefs.numbers, total, label, ordered]);
 
   if (!rows.length || !total) return <Empty />;
   if (kind === "table" || !config)
@@ -138,7 +151,7 @@ function Kpis({ ctx }: { ctx: CardContext }) {
   const ids = ctx.prefs.kpis.length ? ctx.prefs.kpis : (["reports"] as KpiId[]);
   if (ctx.kind === "table") return <DataTable columns={["Measure", "Value"]} rows={ids.map((id) => [kpiLabels[id], values[id].value])} />;
   return (
-    <div className="kpi-grid" style={{ gridTemplateColumns: `repeat(auto-fit, minmax(${ctx.wide ? 150 : 130}px, 1fr))` }}>
+    <div className="kpi-grid" style={{ gridTemplateColumns: `repeat(auto-fit, minmax(${kpiMinWidth[ctx.prefs.kpiSize] - (ctx.wide ? 0 : 18)}px, 1fr))` }}>
       {ids.map((id) => {
         const v = values[id];
         return (
@@ -201,7 +214,7 @@ function Volume({ ctx }: { ctx: CardContext }) {
         backgroundColor: area ? `${theme.series[0]}2e` : theme.series[0],
         fill: area ? "origin" : false,
         borderWidth: 2,
-        pointRadius: totals.length > 40 ? 0 : 2.5,
+        pointRadius: prefs.points && totals.length <= 40 ? 2.5 : 0,
         pointHoverRadius: 4,
         tension: prefs.smooth ? 0.35 : 0,
         order: 1,
@@ -213,7 +226,7 @@ function Volume({ ctx }: { ctx: CardContext }) {
       type: "bar",
       data: { labels, datasets: datasets as ChartDataset<"bar">[] },
       options: {
-        ...baseOptions(theme, { grid: prefs.grid, animations: prefs.animations, legend: multi ? prefs.legend : false, stacked: !line && prefs.stackPriority, values: prefs.values }),
+        ...baseOptions(theme, { grid: prefs.grid, animations: prefs.animations, legend: multi ? prefs.legend : false, stacked: !line && prefs.stackPriority, values: prefs.values, tooltip: prefs.tooltip }),
         plugins: {
           ...baseOptions(theme, { grid: prefs.grid, animations: prefs.animations, legend: multi ? prefs.legend : false, values: prefs.values }).plugins,
           tooltip: {
@@ -223,7 +236,7 @@ function Volume({ ctx }: { ctx: CardContext }) {
         },
       } as ChartConfiguration<"bar">["options"],
     };
-  }, [kind, data, theme, prefs.compare, prefs.smooth, prefs.stackPriority, prefs.grid, prefs.animations, prefs.legend, prefs.values, labels, totals]);
+  }, [kind, data, theme, prefs.compare, prefs.smooth, prefs.stackPriority, prefs.grid, prefs.animations, prefs.legend, prefs.values, prefs.points, prefs.tooltip, labels, totals]);
 
   if (!totals.some(Boolean) && !data.previousSeries.some(Boolean)) return <Empty />;
   if (!config)
@@ -265,14 +278,14 @@ function Deliveries({ ctx }: { ctx: CardContext }) {
           borderRadius: line ? 0 : 3,
           borderSkipped: "start" as const,
           maxBarThickness: 28,
-          pointRadius: 0,
+          pointRadius: line && prefs.points && data.deliverySeries.length <= 40 ? 2.5 : 0,
           pointHoverRadius: 4,
           tension: prefs.smooth ? 0.35 : 0,
           stack: line ? undefined : "d",
         })),
       },
       options: {
-        ...baseOptions(theme, { grid: prefs.grid, animations: prefs.animations, legend: prefs.legend, stacked: !line }),
+        ...baseOptions(theme, { grid: prefs.grid, animations: prefs.animations, legend: prefs.legend, stacked: !line, tooltip: prefs.tooltip }),
         plugins: {
           ...baseOptions(theme, { grid: prefs.grid, animations: prefs.animations, legend: prefs.legend }).plugins,
           tooltip: {
@@ -282,7 +295,7 @@ function Deliveries({ ctx }: { ctx: CardContext }) {
         },
       } as ChartConfiguration<"bar">["options"],
     };
-  }, [kind, data, theme, prefs.smooth, prefs.grid, prefs.animations, prefs.legend]);
+  }, [kind, data, theme, prefs.smooth, prefs.grid, prefs.animations, prefs.legend, prefs.points, prefs.tooltip]);
   const any = data.deliverySeries.some((s) => s.delivered || s.failed || s.waiting);
   if (!any) return <Empty>No deliveries in this period.</Empty>;
   if (!config)
@@ -304,9 +317,9 @@ function Providers({ ctx }: { ctx: CardContext }) {
           { label: "Failed", data: rows.map((r) => r.failed), backgroundColor: theme.danger, borderRadius: 3, borderSkipped: "start", maxBarThickness: 18, stack: "p" },
         ],
       },
-      options: baseOptions(theme, { grid: prefs.grid, animations: prefs.animations, legend: prefs.legend, horizontal: true, stacked: true }) as ChartConfiguration<"bar">["options"],
+      options: baseOptions(theme, { grid: prefs.grid, animations: prefs.animations, legend: prefs.legend, horizontal: true, stacked: true, tooltip: prefs.tooltip }) as ChartConfiguration<"bar">["options"],
     };
-  }, [kind, rows, theme, prefs.grid, prefs.animations, prefs.legend, providerName]);
+  }, [kind, rows, theme, prefs.grid, prefs.animations, prefs.legend, prefs.tooltip, providerName]);
   if (!rows.length) return <Empty>No deliveries in this period.</Empty>;
   if (!config)
     return (
@@ -349,7 +362,7 @@ function MapCard({ ctx }: { ctx: CardContext }) {
             <li key={r.key}>
               <span className="rank-list__name">{r.label}</span>
               <span className="rank-list__bar" style={{ width: `${(r.n / list[0].n) * 100}%` }} aria-hidden />
-              <span className="tabular rank-list__n">{formatNumber(r.n, prefs.numbers)}</span>
+              <span className="tabular rank-list__n">{countAndShare(r.n, total, prefs)}</span>
             </li>
           ))}
         </ol>
@@ -360,31 +373,48 @@ function MapCard({ ctx }: { ctx: CardContext }) {
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
+/** "14:00", or "2pm" on a twelve-hour clock. */
+function hourLabel(h: number, clock: "24h" | "12h") {
+  if (clock === "24h") return `${String(h).padStart(2, "0")}:00`;
+  return `${h % 12 === 0 ? 12 : h % 12}${h < 12 ? "am" : "pm"}`;
+}
+
+/** The same hour with room for 24 of them along an axis. */
+const hourTick = (h: number, clock: "24h" | "12h") => (clock === "24h" ? String(h).padStart(2, "0") : `${h % 12 === 0 ? 12 : h % 12}${h < 12 ? "a" : "p"}`);
+
 function Heatmap({ ctx }: { ctx: CardContext }) {
-  const { data, kind, prefs } = ctx;
+  const { data, kind, prefs, app } = ctx;
   const grid = useMemo(() => {
     const g = Array.from({ length: 7 }, () => Array<number>(24).fill(0));
     for (const h of data.heatmap) g[h.dow - 1][h.hour] = h.n;
     return g;
   }, [data.heatmap]);
+  // Rows are held Monday-first; only the reading order changes.
+  const order = app.weekStart === "sun" ? [6, 0, 1, 2, 3, 4, 5] : [0, 1, 2, 3, 4, 5, 6];
   const max = Math.max(0, ...grid.flat());
   if (!max) return <Empty />;
   if (kind === "table")
-    return <DataTable columns={["Day", "Night (0-6)", "Morning (6-12)", "Afternoon (12-18)", "Evening (18-24)"]} rows={grid.map((row, i) => [DAYS[i], ...[0, 6, 12, 18].map((s) => row.slice(s, s + 6).reduce((a, b) => a + b, 0))])} />;
+    return (
+      <DataTable
+        columns={["Day", "Night (0-6)", "Morning (6-12)", "Afternoon (12-18)", "Evening (18-24)"]}
+        rows={order.map((d) => [DAYS[d], ...[0, 6, 12, 18].map((start) => grid[d].slice(start, start + 6).reduce((a, b) => a + b, 0))])}
+      />
+    );
   return (
-    <div className="heat" role="table" aria-label={`Reports by weekday and hour in ${data.timezone}`}>
-      {grid.map((row, d) => (
+    <TipGroup className="heat" role="table" aria-label={`Reports by weekday and hour in ${data.timezone}`}>
+      {order.map((d) => (
         <div className="heat__row" role="row" key={d}>
           <span className="heat__day" role="rowheader">
             {DAYS[d]}
           </span>
-          {row.map((n, h) => (
+          {grid[d].map((n, h) => (
             <span
               key={h}
               role="cell"
               className="heat__cell"
-              title={`${DAYS[d]} ${String(h).padStart(2, "0")}:00 - ${n} ${n === 1 ? "report" : "reports"}`}
-              aria-label={`${DAYS[d]} ${h}:00, ${n} reports`}
+              data-tip={`${DAYS[d]} ${hourLabel(h, app.clock)}`}
+              data-tip-hint={`${formatNumber(n, prefs.numbers)} ${n === 1 ? "report" : "reports"}`}
+              aria-label={`${DAYS[d]} ${hourLabel(h, app.clock)}, ${n} reports`}
               style={{ ["--k" as string]: n ? 0.18 + (0.82 * n) / max : 0 }}
             />
           ))}
@@ -394,7 +424,7 @@ function Heatmap({ ctx }: { ctx: CardContext }) {
         <span className="heat__day" />
         {Array.from({ length: 24 }, (_, h) => (
           <span key={h} className="heat__hour">
-            {h % 6 === 0 ? `${String(h).padStart(2, "0")}` : ""}
+            {h % 6 === 0 ? hourTick(h, app.clock) : ""}
           </span>
         ))}
       </div>
@@ -405,12 +435,13 @@ function Heatmap({ ctx }: { ctx: CardContext }) {
         ))}
         <span>More · {formatNumber(max, prefs.numbers)} at most in an hour</span>
       </div>
-    </div>
+    </TipGroup>
   );
 }
 
 function Pages({ ctx }: { ctx: CardContext }) {
   const rows = ctx.data.breakdowns.page.slice(0, ctx.prefs.topN + 4);
+  const total = ctx.data.breakdowns.page.reduce((n, r) => n + r.n, 0);
   if (!rows.length) return <Empty>No page addresses in this period.</Empty>;
   if (ctx.kind === "hbar") return <Breakdown rows={rows.map((r) => ({ key: r.key, label: r.key.replace(/^[^/]+/, "") || "/", n: r.n }))} ctx={ctx} label="Page" />;
   if (ctx.kind === "table") return <DataTable columns={["Page", "Reports"]} rows={rows.map((r) => [<span className="mono" key={r.key}>{r.key}</span>, r.n])} />;
@@ -420,7 +451,7 @@ function Pages({ ctx }: { ctx: CardContext }) {
         <li key={r.key} title={r.key}>
           <span className="rank-list__name mono">{r.key}</span>
           <span className="rank-list__bar" style={{ width: `${(r.n / rows[0].n) * 100}%` }} aria-hidden />
-          <span className="tabular rank-list__n">{formatNumber(r.n, ctx.prefs.numbers)}</span>
+          <span className="tabular rank-list__n">{countAndShare(r.n, total, ctx.prefs)}</span>
         </li>
       ))}
     </ol>
@@ -445,8 +476,12 @@ function Recent({ ctx }: { ctx: CardContext }) {
   );
 }
 
+/** A destination is worth a look if it is failing, paused, or falling behind. */
+export const needsAttention = (destinations: Destination[]) =>
+  destinations.filter((d) => d.connection?.status === "error" || (d.enabled && d.stats.lastStatus === "failed") || d.pausedReason || d.stats.pending > 5);
+
 function Attention({ ctx }: { ctx: CardContext }) {
-  const list = (ctx.destinations ?? []).filter((d) => d.connection?.status === "error" || (d.enabled && d.stats.lastStatus === "failed") || d.pausedReason || d.stats.pending > 5);
+  const list = needsAttention(ctx.destinations ?? []);
   if (!ctx.destinations) return <Empty>Loading…</Empty>;
   if (!list.length) return <Empty>Every destination is delivering. Nothing needs you.</Empty>;
   return (
@@ -566,5 +601,37 @@ export function cardSummary(id: CardId, data: Analytics, numbers: "compact" | "f
     }
     default:
       return null;
+  }
+}
+
+/**
+ * Whether a card would only say "nothing in this period", so the dashboard can
+ * leave it out when asked to. Anything still loading counts as not empty: a
+ * card should not flicker out of the grid and back in.
+ */
+export function cardIsEmpty(id: CardId, ctx: CardContext): boolean {
+  const d = ctx.data;
+  switch (id) {
+    // The headline figures are the point of the page, even when they are zero.
+    case "kpis":
+      return false;
+    case "volume":
+      return !d.series.some((s) => s.low + s.medium + s.high + s.critical > 0) && !d.previousSeries.some(Boolean);
+    case "deliveries":
+      return !d.deliverySeries.some((s) => s.delivered || s.failed || s.waiting);
+    case "providers":
+      return !d.breakdowns.provider.length;
+    case "map":
+      return !d.breakdowns.country.length;
+    case "heatmap":
+      return !d.heatmap.some((h) => h.n > 0);
+    case "pages":
+      return !d.breakdowns.page.length;
+    case "recent":
+      return !!ctx.recent && !ctx.recent.length;
+    case "attention":
+      return !!ctx.destinations && !needsAttention(ctx.destinations).length;
+    default:
+      return !breakdownRows(id, ctx).rows.some((r) => r.n > 0);
   }
 }

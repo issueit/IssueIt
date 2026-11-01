@@ -1,32 +1,102 @@
+import { sql } from "drizzle-orm";
+import { db } from "../db";
+
 /**
- * Fixed-window counters held in memory. Issueit runs as a single process by
- * default, so this is enough; a second instance would need a shared store.
+ * Fixed-window counters, shared by every instance through one table.
+ *
+ * Each key is a row with a count and the moment its window ends. The upsert
+ * below does the whole thing in one statement: start a new window if the old
+ * one has passed, otherwise add one to the count, and say what the count now
+ * is. No read-then-write, so two requests arriving together can't both see
+ * room for themselves.
+ *
+ * If the database can't be reached the counters fall back to this process's
+ * memory. Refusing every request because the limiter is unwell would turn a
+ * database blip into an outage, and letting everything through would leave
+ * the door open; counting locally is wrong only by however many instances
+ * are running, which is the behaviour this module used to have all the time.
  */
-type Window = { count: number; resetAt: number };
-
-const windows = new Map<string, Window>();
-
 export type Limit = { key: string; max: number; windowMs: number };
 
-export function hit(limit: Limit): { ok: boolean; retryAfter: number } {
-  const now = Date.now();
-  let w = windows.get(limit.key);
-  if (!w || w.resetAt <= now) {
-    w = { count: 0, resetAt: now + limit.windowMs };
-    windows.set(limit.key, w);
-  }
-  w.count += 1;
-  return { ok: w.count <= limit.max, retryAfter: Math.ceil((w.resetAt - now) / 1000) };
+export type Verdict = { ok: boolean; retryAfter: number };
+
+/** Counts one against a limit and says whether it fitted. */
+export async function hit(limit: Limit): Promise<Verdict> {
+  return hitAll([limit]);
 }
 
-/** Checks every limit and only counts against them if all pass. */
-export function hitAll(limits: Limit[]): { ok: boolean; retryAfter: number } {
+/**
+ * Checks every limit and only counts against them if all pass. A request
+ * that was refused shouldn't also use up the budget of the limits it did
+ * fit inside, so the counts that were added are taken back off.
+ */
+export async function hitAll(limits: Limit[]): Promise<Verdict> {
+  if (!limits.length) return { ok: true, retryAfter: 0 };
+  let counted: Array<{ key: string; count: number; resetAt: Date }>;
+  try {
+    counted = await bump(limits);
+  } catch (err) {
+    console.error("[ratelimit] couldn't reach the counters; counting in memory instead", err);
+    return local(limits);
+  }
+
+  const over = counted.filter((row) => {
+    const limit = limits.find((l) => l.key === row.key);
+    return limit && row.count > limit.max;
+  });
+  if (!over.length) return { ok: true, retryAfter: 0 };
+
+  await unbump(counted.map((row) => row.key)).catch((err) => console.error("[ratelimit] couldn't give back a refused request's count", err));
+  const until = Math.max(...over.map((row) => row.resetAt.getTime()));
+  return { ok: false, retryAfter: Math.max(1, Math.ceil((until - Date.now()) / 1000)) };
+}
+
+/** One statement, every key: open a fresh window or add to the open one. */
+async function bump(limits: Limit[]) {
+  // The same key twice in one insert makes Postgres refuse the whole
+  // statement, so a caller passing one limit twice gets it counted once.
+  const unique = [...new Map(limits.map((l) => [l.key, l])).values()];
+  const keys = unique.map((l) => l.key);
+  const seconds = unique.map((l) => l.windowMs / 1000);
+  return db.execute<{ key: string; count: number; reset_at: Date }>(sql`
+    insert into rate_limits (key, count, reset_at)
+    select k, 1, now() + make_interval(secs => s)
+    from unnest(${keys}::text[], ${seconds}::double precision[]) as t(k, s)
+    on conflict (key) do update set
+      count = case when rate_limits.reset_at <= now() then 1 else rate_limits.count + 1 end,
+      reset_at = case when rate_limits.reset_at <= now() then excluded.reset_at else rate_limits.reset_at end
+    returning key, count, reset_at`).then((rows) => rows.map((row) => ({ key: row.key, count: Number(row.count), resetAt: new Date(row.reset_at) })));
+}
+
+function unbump(keys: string[]) {
+  return db.execute(sql`update rate_limits set count = greatest(count - 1, 0) where key = any(${keys}::text[])`);
+}
+
+/** Deletes windows that have passed. Run from the nightly job. */
+export async function pruneRateLimits(): Promise<number> {
+  const gone = await db.execute<{ key: string }>(sql`delete from rate_limits where reset_at < now() - interval '1 hour' returning key`);
+  return gone.length;
+}
+
+/* ------------------------------------------------- the fallback in memory */
+
+type Window = { count: number; resetAt: number };
+const windows = new Map<string, Window>();
+
+function local(limits: Limit[]): Verdict {
   const now = Date.now();
   for (const l of limits) {
     const w = windows.get(l.key);
-    if (w && w.resetAt > now && w.count >= l.max) return { ok: false, retryAfter: Math.ceil((w.resetAt - now) / 1000) };
+    if (w && w.resetAt > now && w.count >= l.max) return { ok: false, retryAfter: Math.max(1, Math.ceil((w.resetAt - now) / 1000)) };
   }
-  for (const l of limits) hit(l);
+  for (const l of limits) {
+    let w = windows.get(l.key);
+    if (!w || w.resetAt <= now) {
+      w = { count: 0, resetAt: now + l.windowMs };
+      windows.set(l.key, w);
+    }
+    w.count += 1;
+  }
   return { ok: true, retryAfter: 0 };
 }
 

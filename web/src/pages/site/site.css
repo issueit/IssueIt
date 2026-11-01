@@ -317,6 +317,16 @@ html:has(.site) {
     margin-left: 0;
   }
 }
+/* Nine links and two buttons: between the breakpoint and a comfortable
+   desktop the row has to give up its padding rather than wrap. */
+@media (min-width: 861px) and (max-width: 1060px) {
+  .nav-links {
+    gap: 0;
+  }
+  .nav-links a {
+    padding: 6px 8px;
+  }
+}
 @media (max-width: 860px) {
   .nav-links {
     display: none;
@@ -3584,4 +3594,516 @@ br.br-sm {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+}
+
+/* ---------------------------------------------------------------- mcp */
+
+.mcp-ctas {
+  margin-top: 34px;
+}
+
+/* The install card: pick a client across the top, paste what's below. */
+.mcp-install {
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: var(--shadow-float);
+  overflow: hidden;
+}
+.mcp-clients {
+  display: flex;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.mcp-client {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  flex: 1 1 auto;
+  justify-content: center;
+  padding: 16px 18px;
+  border: 0;
+  border-right: 1px solid var(--border-subtle);
+  background: transparent;
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  white-space: nowrap;
+  color: var(--text-3);
+  cursor: pointer;
+  transition:
+    background var(--t-panel) var(--ease),
+    color var(--t-panel) var(--ease);
+}
+.mcp-client:last-child {
+  border-right: 0;
+}
+.mcp-client:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.mcp-client[aria-selected="true"] {
+  background: var(--surface-2);
+  color: var(--text);
+}
+.mcp-client svg {
+  color: var(--text-4);
+}
+.mcp-client[aria-selected="true"] svg,
+.mcp-client:hover svg {
+  color: var(--text-2);
+}
+.mcp-code {
+  background: var(--bg-sunken);
+}
+.mcp-code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px 10px 24px;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: var(--fs-xs);
+  color: var(--text-4);
+}
+.mcp-code pre {
+  margin: 0;
+  padding: 22px 24px 24px;
+  font-size: 13px;
+  line-height: 1.85;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-2);
+  user-select: text;
+}
+
+.mcp-ways {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+.mcp-ways article {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 22px 24px 24px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  background: var(--surface);
+}
+.mcp-ways h3 {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0;
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.mcp-ways h3 svg {
+  color: var(--text-3);
+}
+.mcp-ways p {
+  margin: 0;
+  font-size: var(--fs-md);
+  line-height: 1.65;
+  color: var(--text-3);
+}
+.mcp-ways code,
+.sec-head .lead code,
+.mcp-has code {
+  padding: 1px 5px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 5px;
+  background: var(--surface-2);
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  color: var(--text-2);
+}
+
+/* What the agent is handed: the list, then the thing itself. */
+.mcp-see {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  align-items: start;
+  gap: clamp(24px, 3.4vw, 48px);
+}
+.mcp-has {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.mcp-has li {
+  display: flex;
+  gap: 12px;
+  font-size: var(--fs-md);
+  line-height: 1.6;
+  color: var(--text-2);
+}
+.mcp-has li::before {
+  content: "";
+  flex: none;
+  width: 12px;
+  height: 1px;
+  margin-top: 0.75em;
+  background: var(--text-4);
+}
+.mcp-out {
+  border-radius: 14px;
+  background: var(--bg-sunken);
+  box-shadow: var(--shadow-float);
+  overflow: hidden;
+}
+.mcp-out-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.mcp-out-head .mono:first-child {
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+}
+.mcp-out pre {
+  margin: 0;
+  padding: 20px 22px 24px;
+  font-size: 12.5px;
+  line-height: 1.75;
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+}
+
+/* A prompt you take away rather than read. */
+.mcp-prompts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.mcp-prompts button {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  width: 100%;
+  height: 100%;
+  padding: 20px 20px 22px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  background: var(--surface);
+  font-size: var(--fs-md);
+  line-height: 1.55;
+  text-align: left;
+  color: var(--text-2);
+  cursor: pointer;
+  transition:
+    border-color var(--t-hover) var(--ease),
+    color var(--t-hover) var(--ease);
+}
+.mcp-prompts button:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+.mcp-prompts i {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  margin-top: 3px;
+  border: 1px solid var(--text-4);
+  border-radius: 3px;
+  box-shadow: 3px -3px 0 -1px var(--surface), 3px -3px 0 var(--text-4);
+  opacity: 0.55;
+  transition: opacity var(--t-hover) var(--ease);
+}
+.mcp-prompts button:hover i {
+  opacity: 1;
+}
+
+/* Tool names under each card. */
+.mcp-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: auto;
+  padding-top: 18px;
+}
+.mcp-chips code {
+  padding: 2px 7px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: var(--surface-2);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  transition: color 400ms var(--ease);
+}
+.detail:hover .mcp-chips code {
+  color: var(--text-2);
+}
+
+.mcp-extras {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.mcp-extras li {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 20px 22px 22px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  background: var(--surface);
+}
+.mcp-kind {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-4);
+  letter-spacing: 0.02em;
+}
+.mcp-extras code {
+  font-family: var(--font-mono);
+  font-size: var(--fs-md);
+  font-weight: 500;
+  color: var(--text);
+  word-break: break-word;
+}
+.mcp-extras li > span:last-child {
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+  color: var(--text-3);
+}
+
+@media (max-width: 1000px) {
+  .mcp-prompts,
+  .mcp-extras {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 860px) {
+  .mcp-see {
+    grid-template-columns: 1fr;
+  }
+  .mcp-ways {
+    grid-template-columns: 1fr;
+  }
+  .mcp-client {
+    flex: 1 1 40%;
+  }
+}
+@media (max-width: 640px) {
+  .mcp-prompts,
+  .mcp-extras {
+    grid-template-columns: 1fr;
+  }
+  /* Long tool output in a narrow column: smaller rather than wrapped to death. */
+  .mcp-out pre,
+  .mcp-code pre {
+    font-size: 11.5px;
+  }
+}
+
+/* ---------------------------------------------------------------- for machines */
+
+/**
+ * The line above the copyright that points a model at /llm, and the way back
+ * to the top for whoever read the whole footer. Quiet by default: it isn't
+ * for the person reading, but it shouldn't look like a mistake either.
+ */
+.foot-agent {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 18px 0 20px;
+}
+.foot-ai,
+.foot-up {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+  transition:
+    color var(--t-hover) var(--ease),
+    border-color var(--t-hover) var(--ease),
+    background-color var(--t-hover) var(--ease);
+}
+.foot-ai:hover,
+.foot-up:hover {
+  border-color: var(--border-subtle);
+  background: var(--surface);
+  color: var(--text);
+}
+.foot-ai svg {
+  color: var(--text-4);
+  transition:
+    color 400ms var(--ease),
+    transform 600ms var(--ease-site);
+}
+.foot-ai:hover svg {
+  color: var(--accent);
+  transform: rotate(90deg) scale(1.1);
+}
+.foot-up svg {
+  transition: transform 300ms var(--ease-site);
+}
+.foot-up:hover svg {
+  transform: translateY(-2px);
+}
+
+/* The machine-readable page: a resource is an address with a reason beside it. */
+.llm-start {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  max-width: 760px;
+  margin: 36px auto 0;
+}
+.llm-start-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 10px 10px 18px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: var(--surface);
+  box-shadow: var(--shadow-float);
+}
+.llm-start-row svg {
+  color: var(--text-4);
+}
+.llm-start-row a {
+  font-size: var(--fs-md);
+  color: var(--text);
+}
+.llm-start p {
+  margin: 0;
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+  color: var(--text-3);
+  text-align: center;
+}
+.llm-prompt {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 12px 12px 16px;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  color: var(--text-4);
+}
+.llm-prompt span {
+  flex: 1;
+  font-size: var(--fs-xs);
+  line-height: 1.6;
+}
+.llm-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.llm-res {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 22px 24px 24px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  background: var(--surface);
+  transition: border-color var(--t-hover) var(--ease);
+}
+.llm-res:hover {
+  border-color: var(--border-strong);
+}
+.llm-res header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.llm-res h3 {
+  margin: 0;
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.llm-media {
+  font-size: var(--fs-xs);
+  color: var(--text-4);
+  white-space: nowrap;
+}
+.llm-res p {
+  margin: 0;
+  font-size: var(--fs-md);
+  line-height: 1.6;
+  color: var(--text-3);
+}
+.llm-addr {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 14px;
+  border-top: 1px dashed var(--border);
+}
+.llm-addr a,
+.llm-addr code {
+  flex: 1;
+  overflow: hidden;
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.llm-addr a:hover {
+  color: var(--accent);
+}
+.llm-sample {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  font-size: var(--fs-xs);
+  line-height: 1.7;
+  color: var(--text-3);
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+.llm-ctas {
+  justify-content: flex-start;
+  margin-top: 28px;
+}
+@media (max-width: 860px) {
+  .llm-grid {
+    grid-template-columns: 1fr;
+  }
+  .llm-start-row {
+    max-width: 100%;
+  }
+  .llm-start-row a {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 }

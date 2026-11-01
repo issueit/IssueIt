@@ -1,5 +1,5 @@
 import type { MiddlewareHandler } from "hono";
-import { and, eq, gte, sql } from "drizzle-orm";
+import { and, eq, gte, isNull, sql } from "drizzle-orm";
 import { config } from "../config";
 import { db, schema } from "../db";
 import type { PlanFeature, PlanId, PlanLimits } from "../db/schema";
@@ -33,6 +33,7 @@ function operatorLimits(): PlanLimits {
     retentionDays: 0,
     attachmentBytes: config.limits.attachmentBytes,
     attachmentsPerReport: config.limits.attachmentsPerReport,
+    storageBytes: config.limits.storageBytes,
     reportsPerKeyPerMinute: config.limits.reportsPerKeyPerMinute,
     tokenRequestsPerMinute: config.limits.tokenRequestsPerMinute,
   };
@@ -127,10 +128,13 @@ export async function reportsThisMonth(orgId: string): Promise<number> {
   const cached = counted.get(orgId);
   if (cached && Date.now() - cached.at < 30_000) return cached.count;
   const since = new Date(`${monthKey()}-01T00:00:00Z`);
+  // Reports held back as spam aren't billed for. Nobody should pay an
+  // allowance for post nobody wanted, and a spam run that ate a customer's
+  // month would be an outage they didn't cause.
   const [row] = await db
     .select({ n: sql<number>`count(*)::int` })
     .from(schema.reports)
-    .where(and(eq(schema.reports.orgId, orgId), gte(schema.reports.createdAt, since)));
+    .where(and(eq(schema.reports.orgId, orgId), gte(schema.reports.createdAt, since), isNull(schema.reports.quarantinedAt)));
   const count = row?.n ?? 0;
   counted.set(orgId, { at: Date.now(), count });
   return count;
@@ -245,6 +249,44 @@ export async function assertRoom(org: Org, what: "projects" | "destinations", co
     plan: next?.id,
   });
 }
+
+/* ------------------------------------------------ a verified owner */
+
+/**
+ * Whether anyone who owns this organisation has proved they can read mail
+ * at their address.
+ *
+ * It gates the two things a throwaway signup is worth having: a destination,
+ * which turns Issueit into something that will post text of your choosing to
+ * an address of your choosing, and reporter email, which turns it into
+ * something that will send mail to an address of your choosing. Both are
+ * worth more to someone abusing them than the product is, and both can be
+ * waited for. Collecting reports isn't gated: an end user filing a bug has
+ * done nothing wrong, and losing their report to punish the account would be
+ * backwards.
+ *
+ * Self-hosted installs skip this. The operator and the owner are the same
+ * person, and there's nobody to abuse but themselves.
+ */
+const verified = new Map<string, { at: number; ok: boolean }>();
+
+export async function ownerVerified(orgId: string): Promise<boolean> {
+  if (!hosted) return true;
+  const cached = verified.get(orgId);
+  if (cached && Date.now() - cached.at < 60_000) return cached.ok;
+  const [row] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(schema.memberships)
+    .innerJoin(schema.users, eq(schema.users.id, schema.memberships.userId))
+    .where(and(eq(schema.memberships.orgId, orgId), eq(schema.memberships.role, "owner"), sql`${schema.users.emailVerifiedAt} is not null`));
+  const ok = (row?.n ?? 0) > 0;
+  verified.set(orgId, { at: Date.now(), ok });
+  return ok;
+}
+
+/** 403, naming the one thing that would fix it. */
+export const verifyEmailFirst = (what: string) =>
+  new AppError(403, "email_unverified", `Confirm your email address before ${what}. We sent a link when you signed up; Settings › Account can send another.`);
 
 /** What a brand new organisation starts on. */
 export function startingPlan(): { plan: PlanId; trialEndsAt: Date | null } {

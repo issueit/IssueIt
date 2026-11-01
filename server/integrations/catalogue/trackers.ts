@@ -1,7 +1,7 @@
 import { htmlBody, markdownBody, plainBody, plainMarkdownBody, titleFor } from "../format";
 import { bearer, graphqlErrors, IntegrationError } from "../http";
 import type { Provider } from "../types";
-import { baseUrl, basic, call, define, optional, secret, seg, text, type Spec } from "./define";
+import { baseUrl, basic, call, define, hostName, optional, secret, seg, text, type Spec } from "./define";
 
 /** Issue trackers and project tools: each new report becomes an issue, task or card. */
 
@@ -323,12 +323,12 @@ const specs: Spec[] = [
     ],
     target: { label: "Folder", fields: [text("folder", "Folder or project ID", "The id from the folder's link (the number after ?id=), or its API id.")] },
     async check(creds) {
-      const { data } = await call("Wrike", `https://${creds.host || "www.wrike.com"}/api/v4/contacts?me=true`, { headers: bearer(creds.token) });
+      const { data } = await call("Wrike", `https://${hostName(creds.host, "www.wrike.com")}/api/v4/contacts?me=true`, { headers: bearer(creds.token) });
       const me = data.data?.[0];
       return { label: [me?.firstName, me?.lastName].filter(Boolean).join(" ") || "Wrike" };
     },
     async send({ report, creds, target, isTest }) {
-      const api = `https://${creds.host || "www.wrike.com"}/api/v4`;
+      const api = `https://${hostName(creds.host, "www.wrike.com")}/api/v4`;
       let folder = target.folder;
       if (/^\d+$/.test(folder)) {
         const { data } = await call("Wrike", `${api}/ids?ids=[${folder}]&type=ApiV2Folder`, { headers: bearer(creds.token) });

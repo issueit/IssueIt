@@ -34,7 +34,8 @@ services:
 
   # Public HTTPS without opening a port, for people who'd rather not expose
   # one. Only starts with --profile tunnel. Point the tunnel's public
-  # hostname at http://app:8380, and set APP_URL and TRUST_PROXY to match.
+  # hostname at http://app:8380, and set APP_URL, TRUST_PROXY=true and
+  # TRUST_PROXY_HOPS=1 to match — the tunnel is the one proxy in front.
   cloudflared:
     image: cloudflare/cloudflared:latest
     restart: unless-stopped

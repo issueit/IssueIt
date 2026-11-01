@@ -1,6 +1,7 @@
 import { describeError } from "../../lib/api";
 import { relativeTime } from "../../lib/format";
 import { useOrgQuery } from "../../lib/queries";
+import { safeHref } from "../../lib/urls";
 import { Button } from "../../components/ui/Button";
 import { CodeBlock } from "../../components/ui/Copy";
 import { Callout, EmptyState, Skeleton, StatusPill } from "../../components/ui/feedback";
@@ -69,8 +70,8 @@ export function ProjectReleases() {
                   .filter(Boolean)
                   .join(" · ")}
               >
-                {r.url && (
-                  <a className="text-xs text-text-2 hover:text-text" href={r.url} target="_blank" rel="noreferrer">
+                {safeHref(r.url) && (
+                  <a className="text-xs text-text-2 hover:text-text" href={safeHref(r.url)!} target="_blank" rel="noreferrer">
                     View code
                   </a>
                 )}

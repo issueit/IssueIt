@@ -37,6 +37,7 @@ function Shown({ slug }: { slug: string }) {
     title: `${article.title} - Issueit support`,
     description: article.summary,
     canonical: `${window.location.origin}/articles/en/${article.slug}`,
+    markdown: `${window.location.origin}/articles/en/${article.slug}.md`,
   });
   useLayoutEffect(() => {
     window.scrollTo(0, 0);

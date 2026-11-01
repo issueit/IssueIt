@@ -77,7 +77,7 @@ function sample(providerId: string, category: string, key: string): string {
   if (key === "from") return category === "email" ? "Issueit <bugs@example.com>" : "+447700900123";
   if (key === "to") return category === "email" ? "dev@example.com, ops@example.com" : "+447700900456";
   if (key === "email" || key === "user" || key === "bot") return "bot@example.com";
-  if (["domain", "site", "instance", "space", "subdomain"].includes(key)) return "acme.example.com";
+  if (["domain", "host", "site", "instance", "space", "subdomain"].includes(key)) return "acme.example.com";
   if (key === "topic") return providerId === "sns" ? "arn:aws:sns:eu-west-2:123456789012:bugs" : "bugs";
   if (key === "queue") return providerId === "sqs" ? "https://sqs.eu-west-2.amazonaws.com/123456789012/bugs" : "q1";
   if (["project", "board", "list", "section", "sheet", "table", "tracker", "folder", "author", "ticketType", "mailbox", "account", "cluster"].includes(key)) return "123";

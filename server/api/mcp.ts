@@ -20,9 +20,13 @@ import { TOKEN_PREFIX } from "../auth/tokens";
 export function mcpEndpoint(dispatch: (req: Request) => Promise<Response>) {
   const routes = new Hono();
 
-  routes.all("/", async (c) => {
+  routes.all("/", async (c, next) => {
     const token = c.req.header("authorization")?.match(/^Bearer\s+(\S+)$/i)?.[1];
     if (!token?.startsWith(TOKEN_PREFIX)) {
+      // Somebody typing /mcp into a browser wants the page about this, not a
+      // protocol error. A client speaking MCP always sends its token, and it
+      // never navigates, so an unauthenticated GET belongs to the site.
+      if (c.req.method === "GET" || c.req.method === "HEAD") return next();
       c.header("www-authenticate", `Bearer realm="Issueit", error="invalid_token"`);
       return c.json(
         {

@@ -1,9 +1,15 @@
 import { useSyncExternalStore } from "react";
 
-/** Theme and accent preferences, kept in this browser. */
+/** How the app looks, kept in this browser rather than on the server: it is
+ *  about the screen in front of you, not about the account. */
 export type ThemePref = "system" | "light" | "dark";
 export type Accent = "none" | "blue" | "violet" | "green" | "amber";
 export type Density = "comfortable" | "compact";
+/** Interface scale. "m" is the size the app ships at. */
+export type Zoom = "s" | "m" | "l" | "xl";
+/** Text weight, one step either side of the one it ships at. */
+export type Weight = "light" | "medium" | "heavy";
+export type SidebarState = "expanded" | "collapsed";
 
 const listeners = new Set<() => void>();
 const media = window.matchMedia("(prefers-color-scheme: dark)");
@@ -13,6 +19,9 @@ function read() {
     theme: (localStorage.getItem("issueit.theme") as ThemePref) || "system",
     accent: (localStorage.getItem("issueit.accent") as Accent) || "none",
     density: (localStorage.getItem("issueit.density") as Density) || "comfortable",
+    zoom: (localStorage.getItem("issueit.zoom") as Zoom) || "m",
+    weight: (localStorage.getItem("issueit.weight") as Weight) || "medium",
+    sidebar: (localStorage.getItem("issueit.sidebar") as SidebarState) || "expanded",
   };
 }
 
@@ -25,6 +34,12 @@ function apply() {
   else document.documentElement.dataset.accent = snapshot.accent;
   if (snapshot.density === "compact") document.documentElement.dataset.density = "compact";
   else delete document.documentElement.dataset.density;
+  // The shipped size and weight are the defaults in the stylesheet, so they
+  // need no attribute at all.
+  if (snapshot.zoom === "m") delete document.documentElement.dataset.zoom;
+  else document.documentElement.dataset.zoom = snapshot.zoom;
+  if (snapshot.weight === "medium") delete document.documentElement.dataset.weight;
+  else document.documentElement.dataset.weight = snapshot.weight;
 }
 
 /** The theme actually showing, after "system" is resolved. */
@@ -55,6 +70,27 @@ export function setAccent(accent: Accent) {
 export function setDensity(density: Density) {
   localStorage.setItem("issueit.density", density);
   snapshot = { ...snapshot, density };
+  apply();
+  listeners.forEach((l) => l());
+}
+
+export function setZoom(zoom: Zoom) {
+  localStorage.setItem("issueit.zoom", zoom);
+  snapshot = { ...snapshot, zoom };
+  apply();
+  listeners.forEach((l) => l());
+}
+
+export function setWeight(weight: Weight) {
+  localStorage.setItem("issueit.weight", weight);
+  snapshot = { ...snapshot, weight };
+  apply();
+  listeners.forEach((l) => l());
+}
+
+export function setSidebar(sidebar: SidebarState) {
+  localStorage.setItem("issueit.sidebar", sidebar);
+  snapshot = { ...snapshot, sidebar };
   apply();
   listeners.forEach((l) => l());
 }

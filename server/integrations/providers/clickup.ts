@@ -67,7 +67,7 @@ export const clickup: Provider = {
   },
   async deliver({ report, target, connection }) {
     const body = plainMarkdownBody(report);
-    const { data, status } = await request("ClickUp", `${API}/list/${target.listId}/task`, {
+    const { data, status } = await request("ClickUp", `${API}/list/${encodeURIComponent(String(target.listId))}/task`, {
       method: "POST",
       headers: auth(await connection!.accessToken()),
       json: { name: issueTitle(report), markdown_content: body, markdown_description: body, priority: priorityMap[report.priority] },

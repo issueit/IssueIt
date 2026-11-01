@@ -131,6 +131,8 @@ export type Project = {
   groupDuplicates: boolean;
   /** This project's own grouping and redaction rules. */
   rules: ProjectRules;
+  /** Spam handling and blocked reporters. On every plan. */
+  protection: ProjectProtection;
   lastReportAt: string | null;
   createdAt: string;
 };
@@ -139,6 +141,12 @@ export type Project = {
 export type ProjectRules = {
   grouping?: { titlePatterns?: string[]; ignorePage?: boolean; pathDepth?: number };
   redaction?: { patterns?: Array<{ pattern: string; replacement?: string; label?: string }> };
+};
+
+/** What this project does about submissions nobody asked for. */
+export type ProjectProtection = {
+  spam?: { enabled?: boolean; threshold?: number; allowLinks?: boolean; keywords?: string[] };
+  block?: { ipHashes?: string[]; ips?: string[]; emails?: string[]; domains?: string[] };
 };
 
 export type ProjectLinks = { endpoint: string; formUrl: string; widgetUrl: string; docsUrl: string };
@@ -165,6 +173,10 @@ export type ReportListItem = {
   assigneeId: string | null;
   assigneeName: string | null;
   noteCount: number;
+  /** Set when the report was held back as likely spam, and never delivered. */
+  quarantinedAt: string | null;
+  spamScore: number | null;
+  spamReasons: string[];
 };
 
 export type ConsoleEntry = { t: number; level: "error" | "warn" | "info" | "log"; message: string; stack?: string };
@@ -211,6 +223,9 @@ export type ReportDetail = {
     assigneeId: string | null;
     assignee: { id: string; name: string; email: string } | null;
     release?: string | null;
+    quarantinedAt: string | null;
+    spamScore: number | null;
+    spamReasons: string[];
   };
   /** What the team has said about it, between themselves. */
   notes: ReportNote[];

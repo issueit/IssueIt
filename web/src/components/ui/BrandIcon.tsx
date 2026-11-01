@@ -1,18 +1,21 @@
 import type { ComponentType } from "react";
 import {
   siAirtable,
+  siApachekafka,
   siAsana,
   siBasecamp,
   siBaserow,
   siBetterstack,
   siBitbucket,
   siBrevo,
+  siBytedance,
   siClickup,
   siCloudflare,
   siCoda,
   siCodeberg,
   siDatadog,
   siDiscord,
+  siFavro,
   siForgejo,
   siGitea,
   siGithub,
@@ -33,12 +36,14 @@ import {
   siMatrix,
   siMattermost,
   siMixpanel,
+  siMozilla,
   siN8n,
   siNewrelic,
   siNotion,
   siNtfy,
   siOpenproject,
   siOpsgenie,
+  siPhabricator,
   siPagerduty,
   siPlane,
   siPosthog,
@@ -64,23 +69,29 @@ import {
   siZoom,
   siZulip,
 } from "simple-icons";
+import { brandMarks } from "./brandMarks";
 import { BellIcon, BoltIcon, ChartIcon, ChatRoundLineIcon, ChecklistMinimalisticIcon, CloudBoltIcon, DatabaseIcon, LetterIcon, Routing2Icon, SirenIcon, TicketIcon } from "./icons";
 
 type Mark = { path: string; title: string };
+type BrandMark = (typeof brandMarks)[keyof typeof brandMarks];
 type Category = "tracker" | "helpdesk" | "chat" | "notify" | "email" | "oncall" | "data" | "automation" | "analytics" | "cloud" | "webhook";
 
 /**
- * Brand marks from Simple Icons, drawn in the current text colour so they
- * stay calm. Services without a mark there (Slack, Microsoft and others
- * whose marks aren't licensed for it) get a plain Solar icon for their
- * kind of service rather than an imitation logo.
+ * Brand marks drawn in the current text colour so they stay calm. Most come
+ * from Simple Icons; the rest are in brandMarks.ts, gathered from the
+ * services' own logos because Simple Icons doesn't carry them.
  *
- * Roughly half the catalogue has no mark, so where many sit together the
- * shared glyphs repeat into runs. Pass fallback="monogram" there to get the
- * service's initial instead: a letterform stands in for a logo without
- * pretending to be one, and no two land the same.
+ * A product with no mark of its own wears the one belonging to whoever runs
+ * it: Bugzilla gets Mozilla's, Backlog Nulab's, Lark ByteDance's, Amazon's
+ * queues the AWS mark. The handful with neither get a plain Solar icon for
+ * their kind of service rather than an imitation logo.
+ *
+ * Where many of those sit together the shared glyphs repeat into runs. Pass
+ * fallback="monogram" there to get the service's initial instead: a
+ * letterform stands in for a logo without pretending to be one, and no two
+ * land the same.
  */
-const marks: Record<string, Mark | Category> = {
+const marks: Record<string, Mark | BrandMark | Category> = {
   github: siGithub,
   gitlab: siGitlab,
   linear: siLinear,
@@ -89,13 +100,13 @@ const marks: Record<string, Mark | Category> = {
   discord: siDiscord,
   notion: siNotion,
   jira: siJira,
-  slack: "chat",
+  slack: brandMarks.slack,
   webhook: "webhook",
   asana: siAsana,
-  monday: "tracker",
+  monday: brandMarks.monday,
   shortcut: siShortcut,
-  youtrack: "tracker",
-  azuredevops: "tracker",
+  youtrack: brandMarks.youtrack,
+  azuredevops: brandMarks.azuredevops,
   bitbucket: siBitbucket,
   sourcehut: siSourcehut,
   githubenterprise: siGithub,
@@ -104,19 +115,19 @@ const marks: Record<string, Mark | Category> = {
   plane: siPlane,
   wrike: "tracker",
   todoist: siTodoist,
-  teamwork: "tracker",
-  bugzilla: "tracker",
+  teamwork: brandMarks.teamwork,
+  bugzilla: siMozilla,
   mantisbt: "tracker",
   openproject: siOpenproject,
-  phorge: "tracker",
-  kanboard: "tracker",
+  phorge: siPhabricator,
+  kanboard: brandMarks.kanboard,
   vikunja: siVikunja,
-  favro: "tracker",
+  favro: siFavro,
   meistertask: "tracker",
-  backlog: "tracker",
+  backlog: brandMarks.nulab,
   canny: "tracker",
-  productboard: "tracker",
-  taiga: "tracker",
+  productboard: brandMarks.productboard,
+  taiga: brandMarks.taiga,
   gitea: siGitea,
   forgejo: siForgejo,
   codeberg: siCodeberg,
@@ -126,36 +137,36 @@ const marks: Record<string, Mark | Category> = {
   freshservice: "helpdesk",
   helpscout: siHelpscout,
   intercom: siIntercom,
-  front: "helpdesk",
+  front: brandMarks.front,
   hubspot: siHubspot,
-  servicenow: "helpdesk",
+  servicenow: brandMarks.servicenow,
   gorgias: "helpdesk",
-  zammad: "helpdesk",
-  osticket: "helpdesk",
-  attio: "helpdesk",
+  zammad: brandMarks.zammad,
+  osticket: brandMarks.osticket,
+  attio: brandMarks.attio,
   airtable: siAirtable,
-  smartsheet: "data",
+  smartsheet: brandMarks.smartsheet,
   coda: siCoda,
   baserow: siBaserow,
-  nocodb: "data",
-  grist: "data",
+  nocodb: brandMarks.nocodb,
+  grist: brandMarks.grist,
   supabase: siSupabase,
   googlesheets: siGooglesheets,
-  teams: "chat",
+  teams: brandMarks.teams,
   googlechat: siGooglechat,
   mattermost: siMattermost,
   rocketchat: siRocketdotchat,
-  pumble: "chat",
-  flock: "chat",
+  pumble: brandMarks.pumble,
+  flock: brandMarks.flock,
   chanty: "chat",
-  twist: "chat",
-  campfire: "chat",
+  twist: brandMarks.twist,
+  campfire: siBasecamp,
   basecamp: siBasecamp,
   ringcentral: "chat",
-  dingtalk: "chat",
-  wecom: "chat",
-  feishu: "chat",
-  lark: "chat",
+  dingtalk: brandMarks.dingtalk,
+  wecom: brandMarks.wecom,
+  feishu: siBytedance,
+  lark: siBytedance,
   zulip: siZulip,
   webex: siWebex,
   telegram: siTelegram,
@@ -164,26 +175,26 @@ const marks: Record<string, Mark | Category> = {
   line: siLine,
   zoom: siZoom,
   threema: siThreema,
-  pushover: "notify",
+  pushover: brandMarks.pushover,
   pushbullet: siPushbullet,
   ntfy: siNtfy,
   gotify: "notify",
   bark: "notify",
-  apprise: "notify",
-  twilio: "notify",
+  apprise: brandMarks.apprise,
+  twilio: brandMarks.twilio,
   vonage: siVonage,
-  plivo: "notify",
+  plivo: brandMarks.plivo,
   resend: siResend,
-  postmark: "email",
-  sendgrid: "email",
+  postmark: brandMarks.postmark,
+  sendgrid: brandMarks.sendgrid,
   mailgun: siMailgun,
   brevo: siBrevo,
-  mailjet: "email",
+  mailjet: brandMarks.mailjet,
   sparkpost: siSparkpost,
-  ses: "email",
+  ses: brandMarks.ses,
   pagerduty: siPagerduty,
   opsgenie: siOpsgenie,
-  incidentio: "oncall",
+  incidentio: brandMarks.incidentio,
   splunkoncall: siSplunk,
   squadcast: "oncall",
   betterstack: siBetterstack,
@@ -194,26 +205,26 @@ const marks: Record<string, Mark | Category> = {
   make: siMake,
   n8n: siN8n,
   pipedream: "automation",
-  powerautomate: "automation",
+  powerautomate: brandMarks.powerautomate,
   workato: "automation",
-  activepieces: "automation",
-  tray: "automation",
+  activepieces: brandMarks.activepieces,
+  tray: brandMarks.tray,
   ifttt: siIfttt,
-  inngest: "automation",
+  inngest: brandMarks.inngest,
   datadog: siDatadog,
   newrelic: siNewrelic,
-  segment: "analytics",
+  segment: brandMarks.segment,
   rudderstack: "analytics",
   posthog: siPosthog,
   mixpanel: siMixpanel,
-  amplitude: "analytics",
-  sns: "cloud",
-  sqs: "cloud",
-  eventbridge: "cloud",
-  eventgrid: "cloud",
-  servicebus: "cloud",
+  amplitude: brandMarks.amplitude,
+  sns: brandMarks.aws,
+  sqs: brandMarks.sqs,
+  eventbridge: brandMarks.aws,
+  eventgrid: brandMarks.azure,
+  servicebus: brandMarks.azure,
   pubsub: siGooglepubsub,
-  confluent: "cloud",
+  confluent: siApachekafka,
   cloudflarequeues: siCloudflare,
 };
 
@@ -267,6 +278,9 @@ export function BrandIcon({
           <Icon aria-label={name ?? provider} />
         </span>
       );
+  } else if ("body" in mark) {
+    // Gathered marks keep their own box; the shapes are generated, not user input.
+    icon = <svg role="img" aria-label={name ?? mark.title} width={size} height={size} viewBox={mark.viewBox} fill="currentColor" dangerouslySetInnerHTML={{ __html: mark.body }} />;
   } else {
     icon = (
       <svg role="img" aria-label={name ?? mark.title} width={size} height={size} viewBox="0 0 24 24" fill="currentColor">

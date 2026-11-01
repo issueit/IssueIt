@@ -3,14 +3,14 @@ import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { config } from "../config";
 import { db, schema } from "../db";
-import { defaultWidgetConfig, emailsWithDefaults, priorities, widgetWithDefaults, type ProjectRules } from "../db/schema";
+import { defaultWidgetConfig, emailsWithDefaults, priorities, widgetWithDefaults, type ProjectProtection, type ProjectRules } from "../db/schema";
 import { decrypt, encrypt, randomToken, sha256 } from "../lib/crypto";
 import { AppError, badRequest, notFound } from "../lib/errors";
 import { assertRoom, has, upgradeRequired } from "../billing/entitlements";
-import { checkRules } from "./config";
+import { checkRules } from "../lib/rules";
 import { newId } from "../lib/ids";
 import { storage } from "../lib/storage";
-import { body, type AppEnv } from "../http";
+import { body, httpUrl, type AppEnv } from "../http";
 import { assertProject, projectFence } from "../auth/tokens";
 import { getProvider } from "../integrations";
 import { IntegrationError } from "../integrations/http";
@@ -26,7 +26,7 @@ export async function loadProject(c: Context<AppEnv>, id = c.req.param("project"
   return project;
 }
 
-const origin = z
+export const origin = z
   .string()
   .trim()
   .transform((v, ctx) => {
@@ -59,7 +59,7 @@ const widgetField = z.object({
   options: z.array(z.string().trim().min(1).max(80)).max(30).optional(),
 });
 
-const widgetSchema = z.object({
+export const widgetSchema = z.object({
   showButton: z.boolean(),
   buttonLabel: z.string().trim().min(1).max(40),
   buttonIcon: z.enum(["bug", "chat", "flag", "help", "logo", "none"]),
@@ -95,7 +95,7 @@ const widgetSchema = z.object({
   successTitle: z.string().trim().min(1).max(60),
   successMessage: words(300),
   footerNote: words(200),
-  privacyUrl: z.string().trim().url("Use a full URL.").max(500).nullable(),
+  privacyUrl: httpUrl(500).nullable(),
   updatesLabel: z.string().trim().min(1).max(80),
   duplicateMessage: words(200),
   collectEmail: fieldMode,
@@ -129,7 +129,7 @@ const widgetSchema = z.object({
   environment: z.string().trim().max(40).nullable(),
 });
 
-const emailSettingsSchema = z
+export const emailSettingsSchema = z
   .object({
     enabled: z.boolean(),
     receipt: z.boolean(),
@@ -148,6 +148,29 @@ const LOGO_BYTES = 512 * 1024;
 const projectInput = z.object({
   name: z.string().trim().min(1, "Enter a name.").max(80),
   description: z.string().trim().max(280).nullable().optional(),
+});
+
+/**
+ * Spam handling and blocked reporters. Deliberately not behind the `rules`
+ * feature: every plan can defend itself.
+ */
+const protectionSchema = z.object({
+  spam: z
+    .object({
+      enabled: z.boolean().optional(),
+      threshold: z.number().int().min(1).max(50).optional(),
+      allowLinks: z.boolean().optional(),
+      keywords: z.array(z.string().trim().min(2).max(60)).max(50).optional(),
+    })
+    .optional(),
+  block: z
+    .object({
+      ipHashes: z.array(z.string().trim().min(8).max(128)).max(500).optional(),
+      ips: z.array(z.string().trim().min(3).max(60)).max(500).optional(),
+      emails: z.array(z.string().trim().toLowerCase().max(254)).max(500).optional(),
+      domains: z.array(z.string().trim().toLowerCase().max(253)).max(500).optional(),
+    })
+    .optional(),
 });
 
 /** Grouping and redaction rules. Shapes only; the patterns are checked below. */
@@ -267,6 +290,7 @@ export const projectRoutes = new Hono<AppEnv>()
         emails: emailSettingsSchema.optional(),
         groupDuplicates: z.boolean().optional(),
         rules: rulesSchema.optional(),
+        protection: protectionSchema.optional(),
       }),
     );
     // Taking Issueit's name off the widget is what the paid plans sell; the
@@ -300,6 +324,9 @@ export const projectRoutes = new Hono<AppEnv>()
         ...(input.emails && { emails }),
         ...(input.groupDuplicates !== undefined && { groupDuplicates: input.groupDuplicates }),
         ...(input.rules && { rules: input.rules as ProjectRules }),
+        // Replaces what's there: the editor sends the whole thing, and a
+        // blocked reporter removed in the dashboard has to actually go.
+        ...(input.protection && { protection: input.protection as ProjectProtection }),
         updatedAt: new Date(),
       })
       .where(eq(schema.projects.id, project.id))

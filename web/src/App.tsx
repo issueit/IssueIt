@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { OrgProvider, useMe } from "./lib/session";
 import { ToastHost } from "./components/ui/Toast";
 import { DialogHost } from "./components/ui/Dialog";
+import { TipHost } from "./components/ui/Tooltip";
 import { Shell } from "./components/app/Shell";
 import { CreateOrganisation, Forgot, Login, Reset, Signup, VerifyEmail } from "./pages/auth/Auth";
 import { InvitePage } from "./pages/auth/Invite";
@@ -26,9 +27,11 @@ import { OrganisationSettings } from "./pages/settings/Organisation";
 import { MembersSettings } from "./pages/settings/Members";
 import { ConnectionsSettings } from "./pages/settings/Connections";
 import { AccountSettings } from "./pages/settings/Account";
-import { BillingSettings } from "./pages/settings/Billing";
 import { NotificationSettings } from "./pages/settings/Notifications";
 import { AppearanceSettings } from "./pages/settings/AppearanceSettings";
+import { GeneralSettings } from "./pages/settings/General";
+import { KeyboardSettings } from "./pages/settings/Keyboard";
+import { AboutSettings } from "./pages/settings/About";
 import { DashboardSettings } from "./pages/settings/DashboardSettings";
 import { DeliverySettings } from "./pages/settings/DeliverySettings";
 import { TokensSettings } from "./pages/settings/Tokens";
@@ -37,19 +40,21 @@ import { IntegrationsDirectory, IntegrationsLayout, IntegrationsLog, Integration
 import { IntegrationProvider } from "./pages/integrations/Provider";
 import { TrelloReturn } from "./pages/TrelloReturn";
 import { NotFound } from "./pages/NotFound";
+import { usePreferences } from "./lib/preferences";
 import { onDocsHost } from "./lib/hosts";
+import { hostedRedirects, hostedRoutes, hostedSettings } from "./hosted";
 import { Skeleton } from "./components/ui/feedback";
 
 const Docs = lazy(() => import("./pages/docs/Docs"));
 /** Charts and the world map are heavy, so the dashboard loads on demand. */
 const Dashboard = lazy(() => import("./pages/dashboard/Dashboard"));
 const Landing = lazy(() => import("./pages/site/Landing"));
-const About = lazy(() => import("./pages/site/pages/About"));
-const Blog = lazy(() => import("./pages/site/pages/Blog"));
-const Careers = lazy(() => import("./pages/site/pages/Careers"));
-const Legal = lazy(() => import("./pages/site/pages/Legal"));
+const Llm = lazy(() => import("./pages/site/pages/Llm"));
+const Mcp = lazy(() => import("./pages/site/pages/Mcp"));
 const Platform = lazy(() => import("./pages/site/pages/Platform"));
-const Pricing = lazy(() => import("./pages/site/pages/Pricing"));
+// The marketing pages as they were before the 2026-10-31 redesign, kept for comparison.
+const ClassicLanding = lazy(() => import("./pages/site/legacy/Landing"));
+const ClassicLlm = lazy(() => import("./pages/site/legacy/Llm"));
 const Support = lazy(() => import("./pages/support/Support"));
 const SupportArticle = lazy(() => import("./pages/support/Article"));
 
@@ -75,16 +80,18 @@ export function App() {
             </Suspense>
           }
         />
-        <Route path="/about" element={page(About)} />
-        <Route path="/blog/:slug?" element={page(Blog)} />
-        <Route path="/careers" element={page(Careers)} />
+        <Route path="/llm" element={page(Llm)} />
+        <Route path="/mcp" element={page(Mcp)} />
         <Route path="/platform" element={page(Platform)} />
-        <Route path="/pricing" element={page(Pricing)} />
-        <Route path="/legal" element={<Navigate to="/legal/terms" replace />} />
-        <Route path="/legal/:doc" element={page(Legal)} />
-        <Route path="/terms" element={<Navigate to="/legal/terms" replace />} />
-        <Route path="/privacy" element={<Navigate to="/legal/privacy" replace />} />
-        <Route path="/cookies" element={<Navigate to="/legal/cookies" replace />} />
+        <Route path="/classic" element={page(ClassicLanding)} />
+        <Route path="/classic/llm" element={page(ClassicLlm)} />
+        {/* The pages the hosted service adds: pricing, the company, the legal documents. */}
+        {hostedRoutes.map(({ path, Page }) => (
+          <Route key={path} path={path} element={page(Page)} />
+        ))}
+        {hostedRedirects.map(({ from, to }) => (
+          <Route key={from} path={from} element={<Navigate to={to} replace />} />
+        ))}
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
         <Route path="/forgot" element={<Forgot />} />
@@ -100,6 +107,7 @@ export function App() {
         <Route element={<Authenticated />}>
           <Route path="/oauth/trello" element={<TrelloReturn />} />
           <Route element={<Shell />}>
+            <Route path="/start" element={<StartPage />} />
             <Route path="/dashboard" element={page(Dashboard)} />
             <Route path="/inbox/:reportId?" element={<InboxPage />} />
             <Route path="/projects" element={<ProjectsPage />} />
@@ -122,12 +130,17 @@ export function App() {
             <Route path="/widget" element={<WidgetHome />} />
             <Route path="/usage" element={<Navigate to="/settings/usage" replace />} />
             <Route path="/settings" element={<SettingsLayout />}>
-              <Route index element={<Navigate to="organisation" replace />} />
+              <Route index element={<Navigate to="general" replace />} />
+              <Route path="general" element={<GeneralSettings />} />
+              <Route path="keyboard" element={<KeyboardSettings />} />
+              <Route path="about" element={<AboutSettings />} />
               <Route path="organisation" element={<OrganisationSettings />} />
               <Route path="members" element={<MembersSettings />} />
               <Route path="connections" element={<ConnectionsSettings />} />
               <Route path="usage" element={<UsageSettings />} />
-              <Route path="billing" element={<BillingSettings />} />
+              {hostedSettings.map(({ path, Page }) => (
+                <Route key={path} path={path} element={page(Page)} />
+              ))}
               <Route path="notifications" element={<NotificationSettings />} />
               <Route path="delivery" element={<DeliverySettings />} />
               <Route path="tokens" element={<TokensSettings />} />
@@ -142,6 +155,7 @@ export function App() {
       </Routes>
       <ToastHost />
       <DialogHost />
+      <TipHost />
     </BrowserRouter>
   );
 }
@@ -159,6 +173,7 @@ function DocsSite() {
         <Route path="/*" element={page(Docs)} />
       </Routes>
       <ToastHost />
+      <TipHost />
     </BrowserRouter>
   );
 }
@@ -167,6 +182,13 @@ function DocsSite() {
 function StripDocsPrefix() {
   const { pathname, hash } = useLocation();
   return <Navigate to={`${pathname.replace(/^\/docs/, "") || "/"}${hash}`} replace />;
+}
+
+/** Where signing in lands, which is whichever page the settings name. */
+function StartPage() {
+  const { ready, app } = usePreferences();
+  if (!ready) return null;
+  return <Navigate to={`/${app.startPage}`} replace />;
 }
 
 /** Loads the signed-in person; sends everyone else to sign in, keeping where they were going. */

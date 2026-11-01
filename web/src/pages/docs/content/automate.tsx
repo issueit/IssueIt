@@ -713,10 +713,99 @@ function Monitoring() {
   );
 }
 
+/** The documentation as data: llms.txt, Markdown pages and the manifest. */
+function MachineDocs() {
+  const urls = useUrls();
+  return (
+    <>
+      <p>
+        Every page of this documentation and every support article is published twice: as the page you are reading, and as the Markdown behind it. Nothing is summarised and nothing is written
+        twice — the second copy is rendered from the same source as the first, every time Issueit is built.
+      </p>
+
+      <H2>The four addresses</H2>
+      <Table
+        head={["Address", "What it holds"]}
+        rows={[
+          [<C>{`${urls.marketing}/llms.txt`}</C>, "The index, in the llms.txt convention: every page and article, one line each, linking to its Markdown."],
+          [<C>{`${urls.marketing}/llms-full.txt`}</C>, "All of it in one file, in reading order, for filling a context window in a single request."],
+          [<C>{`${urls.docs}/{page}.md`}</C>, "One page. Any documentation address with .md on the end, and the same for a support article."],
+          [<C>{`${urls.marketing}/llm/index.json`}</C>, "The same index as JSON: titles, summaries, both addresses of every page, and the endpoints below."],
+        ]}
+      />
+      <p>
+        All four are public, unauthenticated and sent with <C>access-control-allow-origin: *</C>. There is no separate rate limit for reading them. <a href={`${urls.marketing}/llm`}>The /llm page</a>{" "}
+        is the human-readable version of this list.
+      </p>
+
+      <H2>One page</H2>
+      <CodeTabs
+        tabs={[
+          { label: "cURL", code: `curl ${urls.docs}/collect/widget.md` },
+          { label: "A support article", code: `curl ${urls.app}/articles/en/add-the-bug-report-button-to-your-website.md` },
+          { label: "This install's index", code: `curl ${urls.marketing}/llms.txt` },
+        ]}
+      />
+      <p>
+        A file opens with the page's title, its one-line summary and the address of the page it mirrors, then the prose: headings, tables, parameter lists and code samples, all as Markdown. Each
+        page also declares its Markdown twin in the HTML, as <C>&lt;link rel="alternate" type="text/markdown"&gt;</C>, so a crawler can find it without being told.
+      </p>
+
+      <Callout kind="note" title="The samples are yours">
+        <p>
+          Addresses inside the Markdown are this install's own — <C>{urls.drop}</C> for intake, <C>{urls.cdn}</C> for the widget — filled in as the file is served rather than baked into the build.
+          A snippet copied out of the Markdown runs against the same host as one copied out of the page.
+        </p>
+      </Callout>
+
+      <H2>The manifest</H2>
+      <p>
+        <C>/llm/index.json</C> is for tooling that would rather not parse Markdown: it lists every documentation page and support article with its title, summary, section, keywords, HTML address and
+        Markdown address, along with the endpoints — intake, the management API, the catalogue, MCP — and the date the files were written.
+      </p>
+      <Code
+        title="index.json"
+        lang="json"
+        code={`{
+  "name": "Issueit",
+  "generated": "2026-10-31",
+  "index": "${urls.marketing}/llms.txt",
+  "documentation": [
+    {
+      "slug": "/collect/widget",
+      "title": "The widget",
+      "summary": "One script tag, a button in the corner, …",
+      "section": "Collect",
+      "html": "${urls.docs}/collect/widget",
+      "markdown": "${urls.docs}/collect/widget.md"
+    }
+  ],
+  "articles": [ … ],
+  "resources": [ … ]
+}`}
+      />
+
+      <H2>Reading, and doing</H2>
+      <p>
+        These files answer questions. To act on Issueit — read a report with its console errors, fix it, resolve it, set a project up — connect the <D to="/automate/mcp">MCP server</D> or use the{" "}
+        <D to="/automate/management-api">management API</D> with an <D to="/automate/tokens">account token</D>. The documentation is the same either way; only the hands are different.
+      </p>
+      <Facts
+        rows={[
+          ["Built with the rest", <>Written by <C>npm run build:llms</C>, so a self-hosted install serves its own documentation at its own addresses.</>],
+          ["Nothing extra to run", "The files are static, generated once per deployment and served from the same container as everything else."],
+          ["Kept honest", "A test builds them and fails if a page rendered to nothing, so the Markdown can't quietly empty out."],
+        ]}
+      />
+    </>
+  );
+}
+
 export const automatePages: Record<string, ComponentType> = {
   "/automate/tokens": Tokens,
   "/automate/management-api": ManagementApi,
   "/automate/mcp": Mcp,
+  "/automate/llms": MachineDocs,
   "/automate/cli": Cli,
   "/automate/config": ConfigAsCode,
   "/automate/monitoring": Monitoring,

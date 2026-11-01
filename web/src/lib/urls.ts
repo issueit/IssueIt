@@ -26,3 +26,19 @@ export function useUrls(): Urls {
   });
   return data ?? fallback;
 }
+
+/**
+ * An address that came from outside — the page a report was sent from, a
+ * release's link — before it becomes something clickable. "javascript:" is
+ * a valid URL, so a stored one would run in the dashboard the moment
+ * somebody followed it. Anything that isn't http or https renders as plain
+ * text instead of a link.
+ */
+export function safeHref(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  try {
+    return /^https?:$/.test(new URL(raw).protocol) ? raw : null;
+  } catch {
+    return null;
+  }
+}

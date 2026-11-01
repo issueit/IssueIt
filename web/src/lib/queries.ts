@@ -18,7 +18,7 @@ export const useProjects = () => useOrgQuery<{ projects: ProjectSummary[] }>("pr
 export const useProject = (id: string) =>
   useOrgQuery<{ project: Project; links: ProjectLinks; stats: { total: number; open: number; week: number }; mail: MailInfo }>("projects", [id], `/projects/${id}`);
 
-export type ReportFilters = { project?: string; status: string; priority?: Priority | ""; q?: string; delivery?: string; assignee?: string };
+export type ReportFilters = { project?: string; status: string; priority?: Priority | ""; q?: string; delivery?: string; assignee?: string; spam?: "only" | "with" };
 
 export function useReports(filters: ReportFilters) {
   const { orgId, path } = useOrg();
@@ -29,7 +29,7 @@ export function useReports(filters: ReportFilters) {
       const params = new URLSearchParams();
       for (const [k, v] of Object.entries(filters)) if (v) params.set(k, v);
       if (pageParam) params.set("cursor", pageParam);
-      return api<{ reports: ReportListItem[]; nextCursor: string | null }>(path(`/reports?${params}`), { signal });
+      return api<{ reports: ReportListItem[]; held: number; nextCursor: string | null }>(path(`/reports?${params}`), { signal });
     },
     getNextPageParam: (last) => last.nextCursor ?? undefined,
     placeholderData: keepPreviousData,

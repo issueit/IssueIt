@@ -16,6 +16,7 @@ import {
   Tooltip,
   type ChartConfiguration,
   type ChartType,
+  type TooltipModel,
 } from "chart.js";
 import { useAppearance } from "../../lib/theme";
 
@@ -63,8 +64,6 @@ export type VizTheme = {
   text: string;
   text2: string;
   text3: string;
-  tooltipBg: string;
-  tooltipText: string;
   success: string;
   warning: string;
   danger: string;
@@ -89,8 +88,6 @@ export function useVizTheme(): VizTheme {
       text: v("--text"),
       text2: v("--text-2"),
       text3: v("--text-3"),
-      tooltipBg: v("--surface-2"),
-      tooltipText: v("--text"),
       success: v("--success"),
       warning: v("--warning"),
       danger: v("--danger"),
@@ -101,10 +98,90 @@ export function useVizTheme(): VizTheme {
   }, [appearance]);
 }
 
+/**
+ * How long to wait for a resize to settle before redrawing. Long enough to
+ * cover a CSS width transition, short enough not to look stuck.
+ */
+export const RESIZE_DELAY = 220;
+
+/* ------------------------------------------------------------------ tooltip */
+
+/**
+ * Chart.js draws its tooltip into the canvas, which means bitmap text that
+ * ignores the interface scale and the themed type. Ours is a real element
+ * instead, so it reads like every other tooltip in the app. One element is
+ * enough: only one chart can be under the pointer.
+ */
+let tipEl: HTMLDivElement | null = null;
+
+function chartTipElement() {
+  if (!tipEl) {
+    tipEl = document.createElement("div");
+    tipEl.className = "chart-tip";
+    // The chart carries its own text description, so this is decoration.
+    tipEl.setAttribute("aria-hidden", "true");
+    document.body.appendChild(tipEl);
+  }
+  return tipEl;
+}
+
+export const hideChartTip = () => {
+  if (tipEl) delete tipEl.dataset.show;
+};
+
+function paint(el: HTMLDivElement, title: string, rows: Array<{ text: string; colour?: string }>) {
+  // Built as elements, never as markup: the labels are project names, page
+  // addresses and browser strings, none of which we wrote.
+  el.replaceChildren();
+  if (title) {
+    const head = document.createElement("div");
+    head.className = "chart-tip__title";
+    head.textContent = title;
+    el.append(head);
+  }
+  for (const row of rows) {
+    const line = document.createElement("div");
+    line.className = "chart-tip__row";
+    if (row.colour) {
+      const dot = document.createElement("span");
+      dot.className = "chart-tip__dot";
+      dot.style.background = row.colour;
+      line.append(dot);
+    }
+    const text = document.createElement("span");
+    text.textContent = row.text;
+    line.append(text);
+    el.append(line);
+  }
+}
+
+type TooltipContext = { chart: Chart; tooltip: TooltipModel<ChartType> };
+
+function external({ chart, tooltip }: TooltipContext) {
+  const el = chartTipElement();
+  if (!tooltip.opacity) return hideChartTip();
+  const colours = tooltip.options?.displayColors === false ? [] : tooltip.labelColors;
+  paint(
+    el,
+    tooltip.title.join(" "),
+    tooltip.body.map((b, i) => ({ text: b.lines.join(" "), colour: colours[i] ? String(colours[i].backgroundColor) : undefined })),
+  );
+  el.dataset.show = "1";
+  // Above the point if it fits, below it if not, and never off either edge.
+  const canvas = chart.canvas.getBoundingClientRect();
+  const x = canvas.left + tooltip.caretX;
+  const y = canvas.top + tooltip.caretY;
+  el.style.left = `${Math.max(8, Math.min(x - el.offsetWidth / 2, window.innerWidth - el.offsetWidth - 8))}px`;
+  el.style.top = `${y - el.offsetHeight - 12 < 8 ? y + 14 : y - el.offsetHeight - 12}px`;
+}
+
+/** The tooltip half of the shared look, so the world map can use it too. */
+export const tipOptions = () => ({ enabled: false, external, displayColors: true, padding: 0 });
+
 /** Shared look: recessive grid and axes, text in text colours, a quiet tooltip. */
 export function baseOptions(
   t: VizTheme,
-  o: { grid: boolean; animations: boolean; legend: "top" | "bottom" | "right" | false; axes?: boolean; horizontal?: boolean; stacked?: boolean; values?: boolean },
+  o: { grid: boolean; animations: boolean; legend: "top" | "bottom" | "right" | false; axes?: boolean; horizontal?: boolean; stacked?: boolean; values?: boolean; tooltip?: "all" | "one" },
 ) {
   const tick = { color: t.text3, font: { family: t.font, size: 11 } };
   const axis = (isValue: boolean) => ({
@@ -117,30 +194,22 @@ export function baseOptions(
   return {
     responsive: true,
     maintainAspectRatio: false,
+    // Coalesce a run of resizes into one redraw. Without this, a window drag
+    // or the sidebar collapsing reallocates every canvas on every frame, which
+    // WebKit does not survive on a high-density screen.
+    resizeDelay: RESIZE_DELAY,
     animation: o.animations ? { duration: 260 } : (false as const),
     indexAxis: o.horizontal ? ("y" as const) : ("x" as const),
-    interaction: { mode: "index" as const, intersect: false },
+    // "all" reads every series at that point in one tooltip; "one" reads only
+    // what the pointer is actually on.
+    interaction: o.tooltip === "one" ? { mode: "nearest" as const, intersect: true } : { mode: "index" as const, intersect: false },
     layout: { padding: { top: o.values && !o.horizontal ? 16 : 4, right: o.values && o.horizontal ? 34 : 4, bottom: 0, left: 0 } },
     plugins: {
       valueLabels: { display: !!o.values, color: t.text2, font: t.font },
       legend: o.legend
         ? { display: true, position: o.legend, align: "start" as const, labels: { color: t.text2, font: { family: t.font, size: 11.5 }, boxWidth: 8, boxHeight: 8, usePointStyle: true, pointStyle: "rectRounded" as const, padding: 12 } }
         : { display: false },
-      tooltip: {
-        backgroundColor: t.tooltipBg,
-        titleColor: t.tooltipText,
-        bodyColor: t.text2,
-        borderColor: t.axis,
-        borderWidth: 1,
-        padding: 9,
-        cornerRadius: 8,
-        boxWidth: 8,
-        boxHeight: 8,
-        boxPadding: 4,
-        usePointStyle: true,
-        titleFont: { family: t.font, size: 12, weight: 600 as const },
-        bodyFont: { family: t.font, size: 12 },
-      },
+      tooltip: tipOptions(),
     },
     ...(o.axes === false ? {} : { scales: { x: axis(!!o.horizontal), y: axis(!o.horizontal) } }),
   };
@@ -157,6 +226,8 @@ export function ChartCanvas<T extends ChartType>({ config, height, label }: { co
     return () => {
       chart.current?.destroy();
       chart.current = null;
+      // A chart can go away while its tooltip is up, on a card being hidden.
+      hideChartTip();
     };
     // Rebuild only when the kind of chart changes; data and options update below.
     // eslint-disable-next-line react-hooks/exhaustive-deps

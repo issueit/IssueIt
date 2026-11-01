@@ -32,7 +32,13 @@ Generate the two secrets with `openssl rand -base64 32`. **Back up `ENCRYPTION_K
 
 ## Documentation
 
-`/docs` in your own install, and `/platform` for the precise reference: every endpoint, limit, header and error code.
+`/docs` in your own install: 44 pages behind a sidebar, with the exact contract — every field, header, limit and error code — under Reference. Support articles are at `/articles/en`, and `/platform` describes the pipeline as a whole.
+
+The same pages are published for machines, built by `npm run build:llms` and served from your own install: `/llms.txt` indexes every page, `/llms-full.txt` is all of it in one file, `/llm/index.json` is the same list as JSON, and any page with `.md` on the end is its Markdown. Addresses inside them are yours, filled in as the file is served, so a sample an agent copies out runs against your server. `/llm` is the page about it.
+
+## What isn't here
+
+This is the open edition, exported from the repository that also runs [issueit.app](https://issueit.app). Two things stay behind: the integration catalogue of token-based services — the hosted service's own work, and the reason it costs money — and its business, meaning the price list, Stripe, the subscription screens, the company pages and the legal documents. Nothing is crippled by their absence: every feature is on, the eleven hand-written destinations and the push and alerting services are here, and the limits are the ones you set.
 
 ## Licence
 

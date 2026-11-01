@@ -115,6 +115,20 @@ export function baseUrl(raw: string | undefined, label = "server URL"): string {
   return url.toString().replace(/\/+$/, "");
 }
 
+/**
+ * A bare host name for the fields that only choose a region ("API host",
+ * "Site"). Typed as a host, so it must stay one: a scheme, path, port or
+ * `#` in there would move the request, and the credentials, elsewhere.
+ */
+export function hostName(raw: string | undefined, fallback: string, label = "API host"): string {
+  const value = (raw ?? "").trim();
+  if (!value) return fallback;
+  // A name, not an address: the last label of a host name is never all digits.
+  if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*\.[a-z]([a-z0-9-]*[a-z0-9])?$/i.test(value))
+    throw new IntegrationError(`Enter the ${label.toLowerCase()} as a host name on its own, like ${fallback}.`, { retryable: false });
+  return value.toLowerCase();
+}
+
 /** A webhook URL that must live on one of the service's own hosts. */
 export function hookUrl(raw: string | undefined, service: string, hosts: RegExp): string {
   const url = baseUrl(raw, "webhook URL");

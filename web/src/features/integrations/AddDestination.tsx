@@ -386,13 +386,6 @@ function TargetPicker({
   value: TargetOption | null;
   onChange: (t: TargetOption | null) => void;
 }) {
-  const [filter, setFilter] = useState("");
-  const options = useMemo(() => {
-    const all = query.data?.targets ?? [];
-    const f = filter.toLowerCase();
-    return f ? all.filter((t) => `${t.label} ${t.hint ?? ""}`.toLowerCase().includes(f)) : all;
-  }, [query.data, filter]);
-
   if (query.isPending) return <Skeleton h={58} />;
   if (query.isError)
     return (
@@ -413,20 +406,16 @@ function TargetPicker({
         This account can't see any {label.toLowerCase()}s yet. Check its permissions, then go back and choose the account again.
       </Callout>
     );
-  const many = query.data.targets.length > 12;
+  // A long list needs no filter of its own: the dropdown grows one past nine options.
   return (
     <div className="field">
       <span className="field__label">{label}</span>
-      {many && (
-        <Input placeholder={`Filter ${query.data.targets.length} ${label.toLowerCase()}s`} value={filter} onChange={(e) => setFilter(e.target.value)} aria-label={`Filter ${label.toLowerCase()}s`} />
-      )}
       <Select
         aria-label={label}
-        size={many ? 8 : undefined}
-        className={many ? "!h-auto py-1" : ""}
+        placeholder={`Choose a ${label.toLowerCase()}`}
         value={value?.id ?? ""}
         onChange={(e) => onChange(query.data!.targets.find((t) => t.id === e.target.value) ?? null)}
-        options={[...(many ? [] : [{ value: "", label: `Choose a ${label.toLowerCase()}` }]), ...options.map((t) => ({ value: t.id, label: t.hint ? `${t.label} - ${t.hint}` : t.label }))]}
+        options={query.data.targets.map((t) => ({ value: t.id, label: t.label, hint: t.hint ?? undefined }))}
       />
     </div>
   );

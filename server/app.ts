@@ -20,12 +20,13 @@ import { connectionRoutes, deliveryRoutes, destinationRoutes, orgDestinationRout
 import { analyticsRoutes } from "./api/analytics";
 import { eventRoutes, usageRoutes } from "./api/usage";
 import { auditRoutes, tokenRoutes, whoamiRoutes } from "./api/tokens";
-import { billingRoutes, billingWebhook } from "./api/billing";
+import { billingRoutes, billingWebhook } from "./hosted";
 import { notificationRoutes } from "./api/notifications";
 import { onboardingRoutes } from "./api/onboarding";
 import { releaseRoutes } from "./api/releases";
 import { configRoutes, rulePreviewRoutes } from "./api/config";
 import { healthRoutes, metricsRoutes } from "./api/health";
+import { llmRoutes } from "./api/llm";
 import { mcpEndpoint } from "./api/mcp";
 import { openapiRoutes } from "./api/openapi";
 import { oauthRoutes } from "./integrations/oauth";
@@ -36,12 +37,20 @@ import { stopEmails, verifyStop } from "./mail/outbox";
 import { verifyAttachmentSignature } from "./delivery/payload";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-/** Built assets: dist/web (dashboard) and dist/cdn (widget), next to the server bundle or under the repo. */
-const distRoot = [path.resolve(here, ".."), path.resolve(here, "../dist"), path.resolve("dist")].find(
-  (p) => fs.existsSync(path.join(p, "web", "assets")) && fs.existsSync(path.join(p, "web", "index.html")),
-);
-const webRoot = distRoot ? path.join(distRoot, "web") : null;
-const cdnRoot = distRoot ? path.join(distRoot, "cdn") : null;
+/** Where the build put its output: next to the server bundle, or under the repo in development. */
+const distRoots = [path.resolve(here, ".."), path.resolve(here, "../dist"), path.resolve("dist")];
+/**
+ * Each part of the build is looked for by something only it has, because
+ * they are built by separate commands and any one of them can be missing —
+ * a server running from source has none of them, and the test run has the
+ * documentation but no dashboard.
+ */
+const built = (dir: string, marker: string) => distRoots.map((root) => path.join(root, dir)).find((p) => fs.existsSync(path.join(p, marker))) ?? null;
+
+const webRoot = built("web", "index.html");
+const cdnRoot = built("cdn", "widget.js");
+/** The documentation written out as Markdown, for readers that aren't browsers. Found on first use; see llmRoutes. */
+const llmRoots = distRoots.map((root) => path.join(root, "llm"));
 const indexHtml = webRoot ? fs.readFileSync(path.join(webRoot, "index.html"), "utf8") : null;
 
 const DASHBOARD_CSP = [
@@ -189,6 +198,13 @@ export function createApp() {
    * it would through the API.
    */
   app.route("/mcp", mcpEndpoint(async (req) => app.fetch(req)));
+
+  /**
+   * llms.txt, the whole documentation as Markdown, and the JSON manifest of
+   * both. Before the dashboard's routes, so `/collect/widget.md` is a file
+   * rather than the single-page app's idea of a missing page.
+   */
+  app.route("/", llmRoutes(llmRoots));
 
   /* ---------------------------------------------------------- public pages and files */
   app.get("/r/:project", async (c) => {

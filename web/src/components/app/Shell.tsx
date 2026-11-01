@@ -5,11 +5,12 @@ import { api, describeError } from "../../lib/api";
 import { useOrgEvents } from "../../lib/events";
 import { useProjects } from "../../lib/queries";
 import { useOrg } from "../../lib/session";
-import { setTheme, useAppearance } from "../../lib/theme";
+import { setSidebar, setTheme, useAppearance } from "../../lib/theme";
 import { DocsLink } from "../../lib/docs-link";
 import { IconButton } from "../ui/Button";
 import { prompt } from "../ui/Dialog";
 import { Menu } from "../ui/Menu";
+import { Tooltip } from "../ui/Tooltip";
 import { toast, toastError } from "../ui/Toast";
 import {
   AddIcon,
@@ -25,6 +26,7 @@ import {
   PaletteIcon,
   PlugCircleIcon,
   SettingsIcon,
+  SidebarMinimalisticIcon,
   SunIcon,
   UserCircleIcon,
   WidgetIcon,
@@ -35,18 +37,18 @@ export function Shell() {
   const { orgId } = useOrg();
   useOrgEvents(orgId);
   const [open, setOpen] = useState(false);
+  const { sidebar } = useAppearance();
   const location = useLocation();
   useEffect(() => setOpen(false), [location.pathname]);
 
   return (
-    <div className="flex h-full">
-      <aside
-        className={`fixed inset-y-0 left-0 z-40 flex flex-col border-r border-border-subtle bg-bg md:static md:translate-x-0 transition-transform ${open ? "translate-x-0 shadow-xl" : "-translate-x-full"}`}
-        style={{ width: "var(--sidebar-w)", transitionDuration: "var(--t-panel)" }}
-      >
-        <Sidebar />
+    // The rail state lives on the frame, so the sidebar and the main column can
+    // both answer to it in CSS alone.
+    <div className="app-frame" data-rail={sidebar === "collapsed" || undefined} data-open={open || undefined}>
+      <aside className="sidebar">
+        <Sidebar collapsed={sidebar === "collapsed"} />
       </aside>
-      {open && <div className="fixed inset-0 z-30 md:hidden" style={{ background: "var(--backdrop)" }} onClick={() => setOpen(false)} />}
+      {open && <div className="sidebar-backdrop md:hidden" onClick={() => setOpen(false)} />}
       <main className="flex-1 min-w-0 h-full overflow-y-auto" id="main">
         <div className="md:hidden flex items-center gap-2 h-11 px-3 border-b border-border-subtle">
           <IconButton icon={HamburgerMenuIcon} label="Open navigation" onClick={() => setOpen(true)} />
@@ -58,7 +60,54 @@ export function Shell() {
   );
 }
 
-function Sidebar() {
+/** A nav row: icon, label, and either a count or a warning dot. Collapsed, the label becomes its tooltip. */
+function NavItem({
+  to,
+  label,
+  icon: IconC,
+  count,
+  alert,
+  collapsed,
+  external,
+}: {
+  to?: string;
+  label: string;
+  icon: React.ComponentType<{ size?: number }>;
+  count?: number;
+  alert?: boolean;
+  collapsed: boolean;
+  external?: boolean;
+}) {
+  const body = (
+    <>
+      <IconC size={17} />
+      <span className="nav-item__label">{label}</span>
+      {count ? (
+        <span className="nav-item__count tabular" aria-label={`${count} new`}>
+          {count > 99 ? "99+" : count}
+        </span>
+      ) : null}
+      {alert && <span className="nav-item__alert" role="img" aria-label="A destination is failing" />}
+    </>
+  );
+  const row = external ? (
+    <DocsLink target="_blank" className="nav-item">
+      {body}
+    </DocsLink>
+  ) : (
+    <NavLink to={to!} className="nav-item">
+      {body}
+    </NavLink>
+  );
+  if (!collapsed) return row;
+  return (
+    <Tooltip label={label} side="right" hint={count ? `${count} new` : undefined}>
+      {row}
+    </Tooltip>
+  );
+}
+
+function Sidebar({ collapsed }: { collapsed: boolean }) {
   const { me, org, setOrg } = useOrg();
   const projects = useProjects();
   const newReports = projects.data?.projects.reduce((n, p) => n + p.newCount, 0) ?? 0;
@@ -97,14 +146,14 @@ function Sidebar() {
 
   return (
     <>
-      <div className="px-2.5 pt-2.5 pb-1">
+      <div className="sidebar__top">
         <Menu
           align="start"
           trigger={
-            <button type="button" className="flex w-full items-center gap-2 rounded-md px-2 h-9 text-left hover:bg-hover transition-colors" aria-label={`Organisation: ${org.name}`}>
-              <span className="grid place-items-center size-6 rounded-md bg-accent text-accent-fg text-xs font-semibold shrink-0">{org.name.charAt(0).toUpperCase()}</span>
-              <span className="flex-1 min-w-0 truncate text-sm font-semibold">{org.name}</span>
-              <AltArrowDownIcon size={13} className="text-text-3" />
+            <button type="button" className="org-switch" aria-label={`Organisation: ${org.name}`}>
+              <span className="org-switch__mark">{org.name.charAt(0).toUpperCase()}</span>
+              <span className="org-switch__name">{org.name}</span>
+              <AltArrowDownIcon size={13} className="text-text-3 shrink-0" />
             </button>
           }
           items={[
@@ -114,58 +163,36 @@ function Sidebar() {
             { label: "New organisation…", icon: AddIcon, onSelect: newOrganisation },
           ]}
         />
+        <IconButton
+          size="sm"
+          side="right"
+          icon={SidebarMinimalisticIcon}
+          label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          className="sidebar__collapse"
+          onClick={() => setSidebar(collapsed ? "expanded" : "collapsed")}
+        />
       </div>
 
-      <nav className="flex flex-col gap-px px-2.5 py-2" aria-label="Main">
+      <nav className="sidebar__nav" aria-label="Main">
         {nav.map((item) => (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            className={({ isActive }) =>
-              `flex items-center gap-2.5 rounded-md px-2 text-sm font-medium transition-colors ${isActive ? "bg-hover text-text" : "text-text-2 hover:bg-hover hover:text-text"}`
-            }
-            style={{ height: "var(--nav-item-h)" }}
-          >
-            <item.icon size={16} />
-            <span className="flex-1">{item.label}</span>
-            {item.count ? (
-              <span className="tabular text-xs text-text-3" aria-label={`${item.count} new`}>
-                {item.count}
-              </span>
-            ) : null}
-            {item.alert && <span className="size-1.5 rounded-full bg-danger" role="img" aria-label="A destination is failing" />}
-          </NavLink>
+          <NavItem key={item.to} {...item} collapsed={collapsed} />
         ))}
       </nav>
 
-      <div className="mt-auto flex flex-col gap-px px-2.5 pb-1.5">
-        <DocsLink
-          target="_blank"
-          className="flex items-center gap-2.5 rounded-md px-2 text-sm font-medium text-text-2 hover:bg-hover hover:text-text transition-colors"
-        >
-          <BookMinimalisticIcon size={16} />
-          <span className="flex-1">Documentation</span>
-        </DocsLink>
-        <NavLink
-          to="/settings"
-          className={({ isActive }) =>
-            `flex items-center gap-2.5 rounded-md px-2 text-sm font-medium transition-colors ${isActive ? "bg-hover text-text" : "text-text-2 hover:bg-hover hover:text-text"}`
-          }
-          style={{ height: "var(--nav-item-h)" }}
-        >
-          <SettingsIcon size={16} />
-          <span className="flex-1">Settings</span>
-        </NavLink>
+      <div className="sidebar__foot">
+        <NavItem label="Documentation" icon={BookMinimalisticIcon} collapsed={collapsed} external />
+        <NavItem to="/settings" label="Settings" icon={SettingsIcon} collapsed={collapsed} />
       </div>
-      <div className="p-2.5 border-t border-border-subtle">
+
+      <div className="sidebar__me">
         <Menu
           align="start"
           trigger={
-            <button type="button" className="flex w-full items-center gap-2 rounded-md px-2 h-10 text-left hover:bg-hover transition-colors">
-              <span className="grid place-items-center size-6 rounded-full bg-surface-3 text-text-2 text-xs font-semibold shrink-0">{me.user.name.charAt(0).toUpperCase()}</span>
-              <span className="flex-1 min-w-0">
-                <span className="block truncate text-sm font-medium">{me.user.name}</span>
-                <span className="block truncate text-xs text-text-3">{me.user.email}</span>
+            <button type="button" className="me-switch" aria-label={`Account: ${me.user.name}`}>
+              <span className="me-switch__mark">{me.user.name.charAt(0).toUpperCase()}</span>
+              <span className="me-switch__text">
+                <span className="me-switch__name">{me.user.name}</span>
+                <span className="me-switch__email">{me.user.email}</span>
               </span>
             </button>
           }

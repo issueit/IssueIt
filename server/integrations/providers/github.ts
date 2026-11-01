@@ -12,7 +12,10 @@ async function account(token: string): Promise<ConnectionAccount> {
   return { label: data.login, url: data.html_url, avatarUrl: data.avatar_url };
 }
 
-const issuePath = (target: Record<string, unknown>, externalId: string) => `${API}/repos/${target.repo}/issues/${externalId.replace(/^#/, "")}`;
+/** Destination targets are free-form JSON, so encode each segment rather than trusting it to be "owner/name". */
+const repoPath = (target: Record<string, unknown>) => `${API}/repos/${String(target.repo ?? "").split("/").map(encodeURIComponent).join("/")}`;
+
+const issuePath = (target: Record<string, unknown>, externalId: string) => `${repoPath(target)}/issues/${encodeURIComponent(externalId.replace(/^#/, ""))}`;
 
 const labelsOf = (target: Record<string, unknown>) => (Array.isArray(target.labels) ? (target.labels as string[]).filter(Boolean).slice(0, 10) : []);
 
@@ -63,7 +66,7 @@ export const github: Provider = {
   },
   async deliver({ report, target, connection }) {
     const token = await connection!.accessToken();
-    const { data, status } = await request("GitHub", `${API}/repos/${target.repo}/issues`, {
+    const { data, status } = await request("GitHub", `${repoPath(target)}/issues`, {
       method: "POST",
       headers: headers(token),
       json: { title: issueTitle(report), body: markdownBody(report), labels: labelsOf(target) },

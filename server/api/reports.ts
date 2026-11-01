@@ -12,11 +12,19 @@ import { body, parse, type AppEnv } from "../http";
 import { fenced } from "../auth/tokens";
 import { enqueueReportEvent } from "../delivery/queue";
 import { setReportStatus } from "../reports/status";
+import { queueReceipt } from "../mail/outbox";
+import { notifyAboutReport } from "../mail/notify";
 import { symbolicate } from "./releases";
 
 const listQuery = z.object({
   project: z.string().optional(),
   status: z.enum([...reportStatuses, "open", "all"]).default("all"),
+  /**
+   * Reports held back as likely spam are kept out of every other view. They
+   * were never delivered, so having them in the inbox would make the inbox
+   * the thing the spam run filled up.
+   */
+  spam: z.enum(["only", "with"]).optional(),
   priority: z.enum(priorities).optional(),
   q: z.string().trim().max(200).optional(),
   delivery: z.enum(["failed"]).optional(),
@@ -48,6 +56,8 @@ export const reportRoutes = new Hono<AppEnv>()
     const r = schema.reports;
     // Duplicates are listed under the report they joined, not on their own.
     const where: SQL[] = [eq(r.orgId, orgId), isNull(r.groupId)];
+    if (query.spam === "only") where.push(sql`${r.quarantinedAt} is not null`);
+    else if (query.spam !== "with") where.push(isNull(r.quarantinedAt));
     const fence = fenced(c, r.projectId);
     if (fence) where.push(fence);
     if (query.project) where.push(eq(r.projectId, query.project));
@@ -78,6 +88,9 @@ export const reportRoutes = new Hono<AppEnv>()
         environment: r.environment,
         reporterEmail: r.reporterEmail,
         createdAt: r.createdAt,
+        quarantinedAt: r.quarantinedAt,
+        spamScore: r.spamScore,
+        spamReasons: r.spamReasons,
         duplicateCount: r.duplicateCount,
         lastSeenAt: r.lastSeenAt,
         projectId: r.projectId,
@@ -101,7 +114,13 @@ export const reportRoutes = new Hono<AppEnv>()
     const more = rows.length > query.limit;
     const page = more ? rows.slice(0, query.limit) : rows;
     const last = page[page.length - 1];
-    return c.json({ reports: page, nextCursor: more && last ? encodeCursor(last.createdAt, last.id) : null });
+    // How many are being held back, so the dashboard can say so rather than
+    // leaving someone to wonder where a report they were told about went.
+    const heldWhere: SQL[] = [eq(r.orgId, orgId), isNull(r.groupId), sql`${r.quarantinedAt} is not null`];
+    if (fence) heldWhere.push(fence);
+    if (query.project) heldWhere.push(eq(r.projectId, query.project));
+    const [held] = await db.select({ n: sql<number>`count(*)::int` }).from(r).where(and(...heldWhere));
+    return c.json({ reports: page, held: held?.n ?? 0, nextCursor: more && last ? encodeCursor(last.createdAt, last.id) : null });
   })
   .get("/:id", async (c) => {
     const report = await loadReport(c, c.req.param("id"));
@@ -160,7 +179,7 @@ export const reportRoutes = new Hono<AppEnv>()
     const [assignee] = report.assigneeId
       ? await db.select({ id: schema.users.id, name: schema.users.name, email: schema.users.email }).from(schema.users).where(eq(schema.users.id, report.assigneeId))
       : [];
-    const { ipHash: _ip, viaKeyId: _key, fingerprint: _fp, ...safe } = report;
+    const { ipHash: _ip, viaKeyId: _key, fingerprint: _fp, contentHash: _hash, ...safe } = report;
     // Minified stacks are mapped back when the report is read, so maps
     // uploaded after the crash still help.
     const diagnostics = await symbolicate(report);
@@ -206,6 +225,69 @@ export const reportRoutes = new Hono<AppEnv>()
     }
     if (input.status) updated = await setReportStatus(updated, input.status);
     return c.json({ report: updated });
+  })
+  /**
+   * "This isn't spam." Lets a held-back report out: it goes to the
+   * destinations and the reporter hears about it, exactly as if it had
+   * arrived now. It also counts against the month from this point, which it
+   * didn't while it was held.
+   *
+   * It doesn't join a group even if an open report matches it. A released
+   * report is one somebody looked at and vouched for, and quietly folding it
+   * into something else would hide the thing they just rescued.
+   */
+  .post("/:id/not-spam", async (c) => {
+    const report = await loadReport(c, c.req.param("id"));
+    if (!report.quarantinedAt) return c.json({ report, released: false });
+    const [released] = await db
+      .update(schema.reports)
+      .set({ quarantinedAt: null, spamReasons: [], updatedAt: new Date() })
+      .where(eq(schema.reports.id, report.id))
+      .returning();
+    const project = await db.query.projects.findFirst({ where: eq(schema.projects.id, released.projectId) });
+    try {
+      await enqueueReportEvent(released, "report.created");
+      if (project) await queueReceipt(released, project);
+      if (project) void notifyAboutReport(released, project).catch((err) => console.error("[reports] couldn't notify about", released.id, err));
+    } catch (err) {
+      console.error("[reports] couldn't deliver a released report", released.id, err);
+    }
+    await publish({ type: "report.updated", orgId: released.orgId, projectId: released.projectId, reportId: released.id });
+    return c.json({ report: released, released: true });
+  })
+  /**
+   * "Nothing more from this reporter." Adds them to the project's block
+   * list, which intake checks before it stores anything.
+   *
+   * The address itself is never shown or stored — only a keyed hash of it —
+   * so what gets blocked is the hash copied from this report. Blocking an
+   * email address as well is offered because a spam run usually reuses one.
+   */
+  .post("/:id/block", async (c) => {
+    const input = await body(c, z.object({ ip: z.boolean().default(true), email: z.boolean().default(false), spam: z.boolean().default(true) }));
+    const report = await loadReport(c, c.req.param("id"));
+    const project = await db.query.projects.findFirst({ where: eq(schema.projects.id, report.projectId) });
+    if (!project) throw notFound("That project");
+
+    const block = { ...project.protection.block };
+    if (input.ip && report.ipHash) block.ipHashes = [...new Set([...(block.ipHashes ?? []), report.ipHash])].slice(-500);
+    if (input.email && report.reporterEmail) block.emails = [...new Set([...(block.emails ?? []), report.reporterEmail.toLowerCase()])].slice(-500);
+    await db
+      .update(schema.projects)
+      .set({ protection: { ...project.protection, block }, updatedAt: new Date() })
+      .where(eq(schema.projects.id, project.id));
+
+    // Blocking someone almost always means this report was spam too.
+    let updated = report;
+    if (input.spam && !report.quarantinedAt) {
+      [updated] = await db
+        .update(schema.reports)
+        .set({ quarantinedAt: new Date(), spamReasons: ["blocked by hand"], updatedAt: new Date() })
+        .where(eq(schema.reports.id, report.id))
+        .returning();
+      await publish({ type: "report.updated", orgId: report.orgId, projectId: report.projectId, reportId: report.id });
+    }
+    return c.json({ report: updated, blocked: { ip: !!(input.ip && report.ipHash), email: !!(input.email && report.reporterEmail) } });
   })
   /**
    * Notes: what was tried, what it turned out to be. Internal, never sent to

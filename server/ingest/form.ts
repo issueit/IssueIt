@@ -7,6 +7,14 @@ const escapeHtml = (value: string) =>
   value.replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]!);
 
 /**
+ * A colour is about to be written straight into a <style> block, so it has to
+ * be a colour. The widget checks the same shape before it uses one, and the
+ * API checks it on the way in; this is the check at the point of writing,
+ * which is the one that has to hold for a row that got in another way.
+ */
+const accentOrNull = (value: string | null) => (value && /^#[0-9a-fA-F]{6}$/.test(value) ? value : null);
+
+/**
  * The hosted report form at /r/{project_id}. It is the widget drawn inline,
  * so the two can never drift apart.
  */
@@ -25,7 +33,7 @@ export async function hostedFormPage(projectId: string): Promise<{ status: numbe
     <p class="lead">Tell the team what went wrong. You don't need an account.</p>
     <div id="issueit-form"></div>
     <script src="${config.cdnUrl}/widget.js" data-project="${escapeHtml(project.id)}" data-mode="inline" data-target="#issueit-form" data-source="form" data-capture="off" defer></script>`;
-  return { status: 200, html: shell(`${escapeHtml(w.title)} - ${name}`, body, { accent: w.accent, poweredBy: w.poweredBy }) };
+  return { status: 200, html: shell(`${escapeHtml(w.title)} - ${name}`, body, { accent: accentOrNull(w.accent), poweredBy: w.poweredBy }) };
 }
 
 /** The page behind "Stop emails about this report". */

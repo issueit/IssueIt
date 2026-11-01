@@ -1,6 +1,6 @@
 import { forwardRef, type ButtonHTMLAttributes, type ComponentType, type ReactNode } from "react";
 import { Link } from "react-router";
-import { Tooltip } from "./Tooltip";
+import { Tooltip, type TipSide } from "./Tooltip";
 
 export type ButtonVariant = "default" | "primary" | "quiet" | "danger" | "danger-solid";
 type Icon = ComponentType<{ size?: number | string; strokeWidth?: number | string }>;
@@ -36,14 +36,16 @@ type IconButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, "children">
   variant?: ButtonVariant;
   size?: "md" | "sm";
   busy?: boolean;
+  /** Which way its tooltip opens. */
+  side?: TipSide;
 };
 
 export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(function IconButton(
-  { icon: IconC, label, variant = "quiet", size = "md", busy, className, disabled, type = "button", ...rest },
+  { icon: IconC, label, variant = "quiet", size = "md", busy, side, className, disabled, type = "button", ...rest },
   ref,
 ) {
   return (
-    <Tooltip label={label}>
+    <Tooltip label={label} side={side}>
       <button
         ref={ref}
         type={type}

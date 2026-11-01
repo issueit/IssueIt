@@ -47,10 +47,18 @@ export const analyticsRoutes = new Hono<AppEnv>().get("/", async (c) => {
   const fmt = sql.raw(`'${r.format}'`);
   const project = q.project ? sql`and project_id = ${q.project}` : sql``;
   const inPeriod = sql`org_id = ${orgId} ${project} and created_at > now() - ${span}`;
+  /**
+   * The same period, for the reports table only. Reports held back as spam
+   * are left out of every figure here: they were never delivered and never
+   * read, and a spam run that bent the charts would be the run achieving
+   * something after all. Deliveries use `inPeriod`, which has no such column.
+   */
+  const reportsInPeriod = sql`${inPeriod} and quarantined_at is null`;
+  const realReport = (alias: string) => sql.raw(`and ${alias}.quarantined_at is null`);
   const local = (col: SQL) => sql`((${col}) at time zone ${tz}::text)`;
 
   const breakdown = (expr: SQL, limit = 12) =>
-    db.execute<Count>(sql`select ${expr} as key, count(*)::int as n from reports where ${inPeriod} group by 1 order by n desc limit ${limit}`);
+    db.execute<Count>(sql`select ${expr} as key, count(*)::int as n from reports where ${reportsInPeriod} group by 1 order by n desc limit ${limit}`);
 
   const [
     [totals],
@@ -80,10 +88,10 @@ export const analyticsRoutes = new Hono<AppEnv>().get("/", async (c) => {
         count(*) filter (where status in ('resolved', 'closed'))::int as resolved,
         count(*) filter (where exists (select 1 from attachments a where a.report_id = reports.id))::int as with_files,
         count(distinct reporter_email)::int as reporters
-      from reports where ${inPeriod}`),
+      from reports where ${reportsInPeriod}`),
     db.execute<{ reports: number }>(sql`
       select count(*)::int as reports from reports
-      where org_id = ${orgId} ${project} and created_at > now() - ${span} - ${span} and created_at <= now() - ${span}`),
+      where org_id = ${orgId} ${project} and quarantined_at is null and created_at > now() - ${span} - ${span} and created_at <= now() - ${span}`),
     db.execute<{ bucket: string; low: number; medium: number; high: number; critical: number }>(sql`
       with b as (
         select generate_series(date_trunc(${unit}, ${local(sql`now() - ${span}`)}), date_trunc(${unit}, ${local(sql`now()`)}), ${step}) as bucket
@@ -93,7 +101,7 @@ export const analyticsRoutes = new Hono<AppEnv>().get("/", async (c) => {
         count(r.id) filter (where r.priority = 'medium')::int as medium,
         count(r.id) filter (where r.priority = 'high')::int as high,
         count(r.id) filter (where r.priority = 'critical')::int as critical
-      from b left join reports r on r.org_id = ${orgId} ${q.project ? sql`and r.project_id = ${q.project}` : sql``}
+      from b left join reports r on r.org_id = ${orgId} ${q.project ? sql`and r.project_id = ${q.project}` : sql``} ${realReport("r")}
         and date_trunc(${unit}, ${local(sql`r.created_at`)}) = b.bucket and r.created_at > now() - ${span}
       group by b.bucket order by b.bucket`),
     db.execute<{ bucket: string; n: number }>(sql`
@@ -101,7 +109,7 @@ export const analyticsRoutes = new Hono<AppEnv>().get("/", async (c) => {
         select generate_series(date_trunc(${unit}, ${local(sql`now() - ${span} - ${span}`)}), date_trunc(${unit}, ${local(sql`now() - ${span}`)}), ${step}) as bucket
       )
       select to_char(b.bucket, ${fmt}) as bucket, count(r.id)::int as n
-      from b left join reports r on r.org_id = ${orgId} ${q.project ? sql`and r.project_id = ${q.project}` : sql``}
+      from b left join reports r on r.org_id = ${orgId} ${q.project ? sql`and r.project_id = ${q.project}` : sql``} ${realReport("r")}
         and date_trunc(${unit}, ${local(sql`r.created_at`)}) = b.bucket
         and r.created_at > now() - ${span} - ${span} and r.created_at <= now() - ${span}
       group by b.bucket order by b.bucket`),
@@ -116,12 +124,12 @@ export const analyticsRoutes = new Hono<AppEnv>().get("/", async (c) => {
     breakdown(sql`regexp_replace(split_part(split_part(page_url, '#', 1), '?', 1), '^https?://', '')`, 10),
     db.execute<{ key: string; name: string; n: number }>(sql`
       select p.id as key, p.name, count(r.id)::int as n from projects p
-      left join reports r on r.project_id = p.id and r.created_at > now() - ${span}
+      left join reports r on r.project_id = p.id ${realReport("r")} and r.created_at > now() - ${span}
       where p.org_id = ${orgId} ${q.project ? sql`and p.id = ${q.project}` : sql``}
       group by p.id, p.name order by n desc, p.name`),
     db.execute<{ dow: number; hour: number; n: number }>(sql`
       select extract(isodow from ${local(sql`created_at`)})::int as dow, extract(hour from ${local(sql`created_at`)})::int as hour, count(*)::int as n
-      from reports where ${inPeriod} group by 1, 2`),
+      from reports where ${reportsInPeriod} group by 1, 2`),
     db.execute<Count>(sql`select status as key, count(*)::int as n from deliveries where ${inPeriod} and not is_test group by 1`),
     db.execute<{ bucket: string; delivered: number; failed: number; waiting: number }>(sql`
       with b as (

@@ -312,10 +312,11 @@ function Limits() {
           ["Reports per visitor, per project", "10 a minute", <C>RATE_LIMIT_IP_PER_MINUTE</C>],
           ["Reports per secret key", "120 a minute", <C>RATE_LIMIT_KEY_PER_MINUTE</C>],
           ["Reports per project", "1,000 an hour", <C>RATE_LIMIT_PROJECT_PER_HOUR</C>],
+          ["Reports per organisation", "5,000 an hour", <C>RATE_LIMIT_ORG_PER_HOUR</C>],
           ["Reports per organisation, per month", "Unlimited, or the plan's", <C>PLAN_REPORTS_PER_MONTH</C>],
           ["Attachments per report", "5", <C>MAX_ATTACHMENTS_PER_REPORT</C>],
           ["Size of each attachment", "10 MB", <C>MAX_ATTACHMENT_MB</C>],
-          ["Attachment storage per organisation", "Unlimited", <C>PLAN_STORAGE_MB</C>],
+          ["Attachment storage per organisation", "Unlimited, or the plan's", <C>PLAN_STORAGE_MB</C>],
           ["JSON body", "256 KB", "Fixed"],
           ["Metadata", "16 KB", "Fixed"],
           ["Title", "200 characters", "Fixed"],
@@ -328,6 +329,7 @@ function Limits() {
         head={["Limit", "Default", "Variable"]}
         rows={[
           ["Requests per account token", "600 a minute", <C>RATE_LIMIT_TOKEN_PER_MINUTE</C>],
+          ["New organisations per address", "5 a day", <C>RATE_LIMIT_SIGNUPS_PER_DAY</C>],
           ["Reports per page", "100", "Fixed"],
           ["Browser token lifetime", "3,600 seconds", "Fixed"],
         ]}
@@ -343,8 +345,14 @@ Retry-After: 37
       <Facts
         rows={[
           ["Visitors", "Counted by a keyed hash of the IP address. The address itself isn't stored."],
-          ["Windows", "Fixed, held in memory, which suits the default single process. Several API processes each get their own window."],
-          ["Behind a proxy", <>Set <C>TRUST_PROXY=true</C> or every visitor looks like your load balancer and shares one limit.</>],
+          ["Windows", "Fixed, counted in Postgres, so every API process counts into the same window and a restart doesn't clear it."],
+          [
+            "Behind a proxy",
+            <>
+              Set <C>TRUST_PROXY=true</C> or every visitor looks like your load balancer and shares one limit. Set <C>TRUST_PROXY_HOPS</C> to the number of proxies you run: the address is counted from
+              the right-hand end of <C>X-Forwarded-For</C>, because anything further left was supplied by the caller.
+            </>,
+          ],
           ["Dry runs", <>Cost a rate-limit slot, because the work is real. They don't count against a monthly allowance, because nothing is stored.</>],
         ]}
       />
@@ -618,6 +626,15 @@ function Environment() {
           [<C>MARKETING_URL</C>, <C>APP_URL</C>, "Where the public site's links point."],
           [<C>DATA_DIR</C>, <C>./data</C>, "Where attachments are written."],
           [<C>TRUST_PROXY</C>, <C>false</C>, <>Read the client address from <C>X-Forwarded-For</C>. Only behind a proxy you run — otherwise every visitor shares one rate limit.</>],
+          [
+            <C>TRUST_PROXY_HOPS</C>,
+            "1",
+            <>
+              How many proxies you run. The address is taken that many entries from the right-hand end of the header, because a caller can write anything into the left-hand end. Cloudflare in front of
+              nginx is <C>2</C>.
+            </>,
+          ],
+          [<C>TRUST_PROXY_HEADER</C>, <C>x-forwarded-for</C>, <>The header to read instead, for example <C>cf-connecting-ip</C>. A single-value header ignores the hop count.</>],
           [<C>ALLOW_SIGNUP</C>, <C>true</C>, "Turn off to make an install invitation-only."],
         ]}
       />

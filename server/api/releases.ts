@@ -7,7 +7,7 @@ import { AppError, badRequest, notFound } from "../lib/errors";
 import { newId } from "../lib/ids";
 import { storage } from "../lib/storage";
 import { fileKey, SourceMap, symbolicateStack } from "../lib/sourcemap";
-import { body, parse, type AppEnv } from "../http";
+import { body, httpUrl, parse, type AppEnv } from "../http";
 import { loadProject } from "./projects";
 import type { ConsoleEntry, Diagnostics } from "../db/schema";
 
@@ -24,7 +24,7 @@ const releaseInput = z.object({
   version: z.string().trim().min(1, "Name the build.").max(80),
   dist: z.string().trim().max(40).nullable().optional(),
   commit: z.string().trim().max(80).nullable().optional(),
-  url: z.string().trim().max(500).url("Use a full URL.").nullable().optional().or(z.literal("")),
+  url: httpUrl(500).nullable().optional().or(z.literal("")),
 });
 
 export const releaseRoutes = new Hono<AppEnv>()

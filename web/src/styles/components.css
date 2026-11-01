@@ -34,7 +34,7 @@
   background: var(--surface-3);
   color: var(--text);
   font-size: var(--fs-sm);
-  font-weight: 500;
+  font-weight: var(--fw-medium);
   white-space: nowrap;
   user-select: none;
   transition:
@@ -165,12 +165,141 @@
   resize: vertical;
   line-height: 1.5;
 }
+/* ------------------------------------------------------------ dropdown */
+/* The trigger is a button, not a native select, so it lays out its own label,
+   icon and arrow and looks the same in every browser. */
 .select {
-  appearance: none;
-  padding-right: 28px;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23808080' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 9px center;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding-right: 7px;
+  text-align: left;
+  font-weight: var(--fw-medium);
+  color: var(--text);
+}
+.select > svg {
+  color: var(--text-3);
+}
+.select__value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.select__arrow {
+  transition: transform var(--t-menu) var(--ease);
+}
+.select[aria-expanded="true"] {
+  border-color: var(--accent-line);
+  background: var(--surface);
+}
+.select[aria-expanded="true"] .select__arrow {
+  transform: rotate(180deg);
+}
+.select:disabled {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.listbox {
+  position: fixed;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  min-width: 170px;
+  padding: 4px;
+  overflow: hidden;
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-pop);
+  animation: pop-in var(--t-menu) var(--ease-out);
+}
+.listbox[data-above] {
+  animation-name: pop-up;
+}
+.listbox__filter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 -4px 4px;
+  padding: 3px 9px 7px;
+  border-bottom: 1px solid var(--divider);
+}
+.listbox__filter > svg {
+  color: var(--text-3);
+}
+.listbox__filter input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  font-size: var(--fs-sm);
+  outline: none;
+}
+.listbox__list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin: -2px;
+  padding: 2px;
+}
+.listbox__group {
+  padding: 7px 8px 3px;
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-medium);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-4);
+}
+.listbox__option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  padding: 4px 8px;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+.listbox__option > svg {
+  color: var(--text-2);
+}
+.listbox__option[data-active] {
+  background: var(--hover-strong);
+}
+.listbox__option[aria-selected="true"] .listbox__label {
+  font-weight: var(--fw-medium);
+}
+.listbox__option[aria-disabled="true"] {
+  opacity: 0.45;
+}
+.listbox__label {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.listbox__hint {
+  display: block;
+  font-size: var(--fs-2xs);
+  color: var(--text-3);
+  line-height: 1.35;
+}
+.listbox__option > .listbox__check {
+  margin-left: auto;
+  color: var(--accent);
+}
+.listbox__none {
+  padding: 9px 8px;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+@keyframes pop-up {
+  from {
+    opacity: 0;
+    transform: translateY(var(--enter-shift)) scale(var(--enter-scale));
+  }
 }
 .input-group {
   display: flex;
@@ -185,11 +314,11 @@
 }
 .field__label {
   font-size: var(--fs-sm);
-  font-weight: 500;
+  font-weight: var(--fw-medium);
   color: var(--text);
 }
 .field__label .optional {
-  font-weight: 400;
+  font-weight: var(--fw-regular);
   color: var(--text-3);
 }
 .field__hint {
@@ -284,7 +413,7 @@
   padding: 0 10px;
   border-radius: var(--r-xs);
   font-size: var(--fs-xs);
-  font-weight: 500;
+  font-weight: var(--fw-medium);
   color: var(--text-2);
   border: none;
   background: transparent;
@@ -310,7 +439,7 @@
   padding: 0 7px 0 6px;
   border-radius: 999px;
   font-size: var(--fs-xs);
-  font-weight: 500;
+  font-weight: var(--fw-medium);
   color: var(--text-2);
   background: var(--surface-3);
   white-space: nowrap;
@@ -386,7 +515,7 @@
 }
 .callout__title {
   color: var(--text);
-  font-weight: 550;
+  font-weight: var(--fw-medium);
 }
 .callout[data-tone="danger"] {
   background: var(--danger-soft);
@@ -474,7 +603,7 @@
 }
 .empty__title {
   color: var(--text);
-  font-weight: 550;
+  font-weight: var(--fw-medium);
   font-size: var(--fs-md);
 }
 .empty__text {
@@ -525,7 +654,7 @@ button.list-row {
 
 .set-group__title {
   font-size: var(--fs-sm);
-  font-weight: 600;
+  font-weight: var(--fw-strong);
   color: var(--text-2);
   margin: 0 0 8px 2px;
 }
@@ -551,7 +680,7 @@ button.list-row {
 }
 .set-row__label {
   font-size: var(--fs-md);
-  font-weight: 500;
+  font-weight: var(--fw-medium);
 }
 .set-row__hint {
   font-size: var(--fs-xs);
@@ -589,7 +718,7 @@ button.list-row {
   align-items: center;
   gap: 8px;
   font-size: var(--fs-md);
-  font-weight: 600;
+  font-weight: var(--fw-strong);
   min-width: 0;
 }
 .page-header__title svg {
@@ -597,7 +726,7 @@ button.list-row {
 }
 .page-header__crumb {
   color: var(--text-3);
-  font-weight: 500;
+  font-weight: var(--fw-medium);
 }
 .page-header__crumb:hover {
   color: var(--text);
@@ -617,7 +746,7 @@ button.list-row {
 }
 .page-title {
   font-size: var(--fs-xl);
-  font-weight: 600;
+  font-weight: var(--fw-strong);
 }
 
 .tabs {
@@ -635,7 +764,7 @@ button.list-row {
   gap: 6px;
   padding: 0 9px;
   font-size: var(--fs-sm);
-  font-weight: 500;
+  font-weight: var(--fw-medium);
   color: var(--text-3);
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;
@@ -711,18 +840,80 @@ button.list-row {
   }
 }
 
-.tooltip {
+/* Our own tooltip: a small raised card, so it can hold a second line and a key
+   cap and still belong to the same family as the menus. */
+.tip {
   position: fixed;
   z-index: 80;
   pointer-events: none;
-  padding: 4px 7px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-width: 260px;
+  padding: 5px 9px 6px;
   border-radius: var(--r-sm);
-  background: var(--text);
-  color: var(--text-inverse);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-pop);
+  animation: tip-in var(--t-menu) var(--ease-out);
+}
+.tip__label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
   font-size: var(--fs-xs);
-  font-weight: 500;
-  white-space: nowrap;
-  animation: fade-in var(--t-menu) var(--ease);
+  font-weight: var(--fw-medium);
+  color: var(--text);
+  line-height: 1.35;
+}
+.tip__hint {
+  font-size: var(--fs-2xs);
+  color: var(--text-3);
+  line-height: 1.4;
+}
+.tip__keys {
+  font-family: var(--font-sans);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-medium);
+  color: var(--text-3);
+  padding: 1px 4px;
+  border-radius: var(--r-xs);
+  background: var(--hover-strong);
+}
+/* The arrow is the bubble's own corner, turned 45 degrees. */
+.tip::after {
+  content: "";
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  transform: rotate(45deg);
+}
+.tip[data-side="top"]::after {
+  bottom: -4px;
+  left: calc(var(--tip-arrow, 50%) - 4px);
+  clip-path: polygon(100% 0, 100% 100%, 0 100%);
+}
+.tip[data-side="bottom"]::after {
+  top: -4px;
+  left: calc(var(--tip-arrow, 50%) - 4px);
+  clip-path: polygon(0 0, 100% 0, 0 100%);
+}
+.tip[data-side="left"]::after {
+  right: -4px;
+  top: calc(var(--tip-arrow, 50%) - 4px);
+  clip-path: polygon(100% 0, 100% 100%, 0 0);
+}
+.tip[data-side="right"]::after {
+  left: -4px;
+  top: calc(var(--tip-arrow, 50%) - 4px);
+  clip-path: polygon(0 0, 100% 100%, 0 100%);
+}
+@keyframes tip-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
 }
 @keyframes fade-in {
   from {
@@ -772,7 +963,7 @@ button.list-row {
 }
 .dialog__title {
   font-size: var(--fs-lg);
-  font-weight: 600;
+  font-weight: var(--fw-strong);
 }
 .dialog__description {
   font-size: var(--fs-sm);
@@ -814,7 +1005,7 @@ button.list-row {
   gap: 6px;
   font-size: var(--fs-xs);
   color: var(--text-4);
-  font-weight: 500;
+  font-weight: var(--fw-medium);
 }
 .stepper__step[data-state="current"] {
   color: var(--text);
@@ -870,7 +1061,7 @@ button.list-row {
 }
 .radio-card__title {
   font-size: var(--fs-sm);
-  font-weight: 550;
+  font-weight: var(--fw-medium);
 }
 .radio-card__hint {
   font-size: var(--fs-xs);
@@ -947,7 +1138,7 @@ button.list-row {
 
 .section-title {
   font-size: var(--fs-xs);
-  font-weight: 600;
+  font-weight: var(--fw-strong);
   color: var(--text-3);
   margin-bottom: 8px;
 }
@@ -967,4 +1158,396 @@ button.list-row {
   text-align: right;
   font-size: var(--fs-xs);
   color: var(--text-2);
+}
+
+/* ------------------------------------------------------------ app frame and sidebar */
+.app-frame {
+  display: flex;
+  height: 100%;
+}
+.sidebar {
+  position: fixed;
+  inset-block: 0;
+  left: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  width: var(--sidebar-w);
+  border-right: 1px solid var(--border-subtle);
+  background: var(--bg);
+  transform: translateX(-100%);
+  transition:
+    transform var(--t-panel) var(--ease),
+    width var(--t-layout) var(--ease);
+}
+.app-frame[data-open] .sidebar {
+  transform: none;
+  box-shadow: var(--shadow-pop);
+}
+.sidebar-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  background: var(--backdrop);
+  animation: fade-in var(--t-panel) var(--ease);
+}
+@media (min-width: 768px) {
+  .sidebar {
+    position: static;
+    transform: none;
+  }
+}
+
+/* The rail is padded by --sidebar-pad only, so the rows run nearly its full
+   width and no dead margin is left down either side. */
+.sidebar__top {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: var(--sidebar-pad) var(--sidebar-pad) 2px;
+}
+.sidebar__collapse {
+  margin-left: auto;
+  opacity: 0;
+  transition: opacity var(--t-hover) var(--ease);
+}
+.sidebar:hover .sidebar__collapse,
+.sidebar__collapse:focus-visible,
+.app-frame[data-rail] .sidebar__collapse {
+  opacity: 1;
+}
+@media (max-width: 767px) {
+  .sidebar__collapse {
+    display: none;
+  }
+}
+
+.org-switch,
+.me-switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  height: var(--nav-item-h);
+  padding: 0 6px;
+  border-radius: var(--r-sm);
+  text-align: left;
+  transition: background var(--t-hover) var(--ease);
+}
+.org-switch:hover,
+.me-switch:hover,
+.org-switch[aria-expanded="true"],
+.me-switch[aria-expanded="true"] {
+  background: var(--hover);
+}
+.org-switch__mark,
+.me-switch__mark {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--r-sm);
+  background: var(--accent);
+  color: var(--accent-fg);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-strong);
+}
+.me-switch__mark {
+  border-radius: 50%;
+  background: var(--surface-3);
+  color: var(--text-2);
+}
+.org-switch__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-strong);
+}
+
+.sidebar__nav,
+.sidebar__foot {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 4px var(--sidebar-pad);
+}
+.sidebar__foot {
+  margin-top: auto;
+}
+.sidebar__me {
+  display: flex;
+  padding: var(--sidebar-pad);
+  border-top: 1px solid var(--border-subtle);
+}
+.me-switch {
+  height: calc(var(--nav-item-h) + 6px);
+}
+.me-switch__text {
+  flex: 1;
+  min-width: 0;
+}
+.me-switch__name,
+.me-switch__email {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.me-switch__name {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+}
+.me-switch__email {
+  font-size: var(--fs-2xs);
+  color: var(--text-3);
+}
+
+.nav-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: var(--nav-item-h);
+  padding: 0 8px;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  color: var(--text-2);
+  transition:
+    background var(--t-hover) var(--ease),
+    color var(--t-hover) var(--ease);
+}
+.nav-item > svg {
+  flex: none;
+}
+.nav-item:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.nav-item[aria-current="page"] {
+  background: var(--selection);
+  color: var(--text);
+}
+.nav-item[aria-current="page"] > svg {
+  color: var(--accent);
+}
+/* A hairline against the window edge marks where you are, for anyone who
+   cannot tell the selected background from the unselected one. */
+.nav-item[aria-current="page"]::before {
+  content: "";
+  position: absolute;
+  left: calc(var(--sidebar-pad) * -1);
+  top: 50%;
+  width: 2px;
+  height: 15px;
+  margin-top: -7.5px;
+  border-radius: 0 2px 2px 0;
+  background: var(--accent);
+}
+.nav-item__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nav-item__count {
+  flex: none;
+  min-width: 20px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-medium);
+  color: var(--text-2);
+  text-align: center;
+}
+.nav-item[aria-current="page"] .nav-item__count {
+  background: var(--hover-strong);
+  color: var(--text);
+}
+.nav-item__alert {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--danger);
+}
+
+/* Collapsed to a rail: icons only, with the labels moving into tooltips. A
+   count has no room, so it becomes the same kind of dot as an alert. */
+@media (min-width: 768px) {
+  .app-frame[data-rail] .sidebar {
+    width: var(--sidebar-rail);
+  }
+  .app-frame[data-rail] .sidebar__top {
+    flex-direction: column;
+    gap: 2px;
+  }
+  .app-frame[data-rail] .nav-item,
+  .app-frame[data-rail] .org-switch,
+  .app-frame[data-rail] .me-switch {
+    justify-content: center;
+    padding: 0;
+  }
+  .app-frame[data-rail] .nav-item__label,
+  .app-frame[data-rail] .org-switch__name,
+  .app-frame[data-rail] .org-switch > svg,
+  .app-frame[data-rail] .me-switch__text {
+    display: none;
+  }
+  .app-frame[data-rail] .nav-item__count {
+    position: absolute;
+    top: 4px;
+    right: 6px;
+    min-width: 0;
+    width: 6px;
+    height: 6px;
+    padding: 0;
+    overflow: hidden;
+    border-radius: 50%;
+    background: var(--accent);
+    color: transparent;
+    font-size: 0;
+  }
+  .app-frame[data-rail] .nav-item__alert {
+    position: absolute;
+    top: 4px;
+    right: 6px;
+  }
+}
+
+/* A report can take the whole page instead of sitting beside the list. */
+.panel--full {
+  width: 100%;
+  border-left: none;
+  animation: none;
+}
+
+/* ------------------------------------------------------------ shortcut reference */
+.keys {
+  display: flex;
+  flex-direction: column;
+  padding: 2px 0 6px;
+}
+.keys__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 5px 14px;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+.keys__row[data-off] {
+  opacity: 0.45;
+}
+.key {
+  display: inline-grid;
+  place-items: center;
+  min-width: 26px;
+  height: 22px;
+  padding: 0 7px;
+  flex: none;
+  border-radius: var(--r-xs);
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  background: var(--surface-3);
+  font-family: var(--font-sans);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  color: var(--text);
+}
+
+/* ------------------------------------------------------------ settings rail */
+.set-nav {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 12px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+@media (min-width: 768px) {
+  .set-nav {
+    width: 214px;
+    padding: 14px 10px;
+    border-bottom: 0;
+  }
+}
+.set-nav__search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: var(--control-h);
+  padding: 0 9px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-sunken);
+  transition: border-color var(--t-hover) var(--ease);
+}
+.set-nav__search:focus-within {
+  border-color: var(--accent-line);
+  background: var(--surface);
+}
+.set-nav__search > svg {
+  color: var(--text-3);
+}
+.set-nav__group {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.set-nav__heading {
+  padding: 0 8px 4px;
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-medium);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-4);
+}
+.set-nav__item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: var(--nav-item-h);
+  padding: 0 8px;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  white-space: nowrap;
+  transition:
+    background var(--t-hover) var(--ease),
+    color var(--t-hover) var(--ease);
+}
+.set-nav__item > svg {
+  flex: none;
+  color: var(--text-3);
+}
+.set-nav__item:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.set-nav__item[aria-current="page"] {
+  background: var(--selection);
+  color: var(--text);
+  font-weight: var(--fw-medium);
+}
+.set-nav__item[aria-current="page"] > svg {
+  color: var(--accent);
+}
+/* Which section a result came from, shown only while searching. */
+.set-nav__where {
+  flex: none;
+  font-size: var(--fs-2xs);
+  color: var(--text-4);
+}
+.set-nav__none {
+  padding: 6px 8px;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
 }

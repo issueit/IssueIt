@@ -8,10 +8,11 @@ import { badRequest, forbidden } from "../lib/errors";
 import { newId } from "../lib/ids";
 import { checkUrlShape, UnsafeUrlError } from "../lib/ssrf";
 import { compilePatterns, scrubText } from "../lib/scrub";
+import { checkRules } from "../lib/rules";
 import { fingerprintFor, normalisePath, normaliseTitle } from "../ingest/grouping";
 import { body, type AppEnv } from "../http";
 import { getProvider } from "../integrations";
-import { loadProject } from "./projects";
+import { emailSettingsSchema, loadProject, origin, widgetSchema } from "./projects";
 
 /**
  * A project as a file: everything that decides how it behaves, in one
@@ -54,12 +55,40 @@ const configDoc = z.object({
   allowedOrigins: z.array(z.string().trim().max(200)).max(50).optional(),
   groupDuplicates: z.boolean().optional(),
   rules: z.record(z.string(), z.unknown()).optional(),
+  // Shape only. The fields inside are checked in the handler, against the
+  // very schemas the dashboard's own endpoint uses: this file is another way
+  // into the same columns, not a way around what may go in them. They can't
+  // be named here because config.ts and projects.ts import each other, so
+  // neither module's constants exist while the other is being evaluated.
   widget: z.record(z.string(), z.unknown()).optional(),
   emails: z.record(z.string(), z.unknown()).optional(),
   destinations: z.array(destinationDoc).max(50).optional(),
 });
 
 export type ConfigDoc = z.infer<typeof configDoc>;
+
+/**
+ * The parts of the document that end up rendered or acted on: a colour goes
+ * into a <style> block on the public form, a logo path into an <img>, an
+ * origin into the check that decides whose reports are accepted. They get the
+ * same field checks as `PATCH /projects/:id`, because they reach the same
+ * columns.
+ */
+function checkedDoc(doc: ConfigDoc): ConfigDoc {
+  const checked = { ...doc };
+  const run = <T>(schema: z.ZodType<T>, value: unknown, where: string): T => {
+    const result = schema.safeParse(value);
+    if (!result.success) {
+      const issue = result.error.issues[0];
+      throw badRequest(`config.${where}${issue.path.length ? `.${issue.path.join(".")}` : ""}: ${issue.message}`);
+    }
+    return result.data;
+  };
+  if (doc.widget) checked.widget = run(widgetSchema.partial(), doc.widget, "widget");
+  if (doc.emails) checked.emails = run(emailSettingsSchema.partial(), doc.emails, "emails");
+  if (doc.allowedOrigins) checked.allowedOrigins = run(z.array(origin).max(50), doc.allowedOrigins, "allowedOrigins");
+  return checked;
+}
 
 export const configRoutes = new Hono<AppEnv>()
   /**
@@ -125,7 +154,7 @@ export const configRoutes = new Hono<AppEnv>()
   .post("/", async (c) => {
     const project = await loadProject(c);
     const input = await body(c, z.object({ config: configDoc, dryRun: z.boolean().default(false), prune: z.boolean().default(false) }));
-    const doc = input.config;
+    const doc = checkedDoc(input.config);
     const changes: string[] = [];
     const problems: string[] = [];
 
@@ -152,7 +181,8 @@ export const configRoutes = new Hono<AppEnv>()
     }
     if (doc.widget) {
       const next = { ...widgetWithDefaults(project.widget), ...doc.widget };
-      const differs = Object.keys(doc.widget).filter((k) => JSON.stringify((widgetWithDefaults(project.widget) as Record<string, unknown>)[k]) !== JSON.stringify(doc.widget![k]));
+      const want = doc.widget as Record<string, unknown>;
+      const differs = Object.keys(want).filter((k) => JSON.stringify((widgetWithDefaults(project.widget) as Record<string, unknown>)[k]) !== JSON.stringify(want[k]));
       if (differs.length) {
         set.widget = next;
         changes.push(`widget: ${differs.join(", ")}`);
@@ -292,26 +322,6 @@ const short = (value: unknown) => {
 
 /* ------------------------------------------------------- rule previews */
 
-/** Every pattern is compiled here so a bad one is refused at the door, not at intake. */
-function checkRules(rules: ProjectRules): string[] {
-  const problems: string[] = [];
-  for (const pattern of rules.grouping?.titlePatterns ?? []) {
-    try {
-      new RegExp(pattern);
-    } catch (err) {
-      problems.push(`Grouping pattern ${JSON.stringify(pattern)} isn't a valid regular expression: ${(err as Error).message}`);
-    }
-  }
-  for (const rule of rules.redaction?.patterns ?? []) {
-    try {
-      new RegExp(rule.pattern);
-    } catch (err) {
-      problems.push(`Redaction pattern ${JSON.stringify(rule.pattern)} isn't a valid regular expression: ${(err as Error).message}`);
-    }
-  }
-  return problems;
-}
-
 const previewInput = z.object({
   grouping: z.record(z.string(), z.unknown()).optional(),
   redaction: z.record(z.string(), z.unknown()).optional(),
@@ -381,4 +391,3 @@ export const rulePreviewRoutes = new Hono<AppEnv>().post("/preview", async (c) =
   });
 });
 
-export { checkRules };

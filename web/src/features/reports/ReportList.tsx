@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { useMembers, useProjects, useReports, type ReportFilters } from "../../lib/queries";
+import { usePreferences, type RowMeta } from "../../lib/preferences";
 import { api, describeError } from "../../lib/api";
 import { plural, relativeTime } from "../../lib/format";
 import { useOrg } from "../../lib/session";
@@ -21,6 +22,8 @@ const statusOptions = [
   { value: "resolved", label: "Resolved" },
   { value: "closed", label: "Closed" },
   { value: "all", label: "All statuses" },
+  /** Held back as likely spam. Never delivered, and kept out of every other view. */
+  { value: "spam", label: "Held as spam" },
 ];
 
 const priorityOptions = [
@@ -36,7 +39,11 @@ export function ReportList({ project, basePath, empty }: { project?: string; bas
   const { reportId } = useParams();
   const { orgId, path, me } = useOrg();
   const qc = useQueryClient();
-  const [status, setStatus] = useState("open");
+  const { app } = usePreferences();
+  // The saved default applies until the filter is actually touched, so it can
+  // still take effect once the settings finish loading.
+  const [chosenStatus, setStatus] = useState<string | null>(null);
+  const status = chosenStatus ?? app.inboxStatus;
   const [priority, setPriority] = useState("");
   const [projectFilter, setProjectFilter] = useState("");
   const [delivery, setDelivery] = useState("");
@@ -50,12 +57,23 @@ export function ReportList({ project, basePath, empty }: { project?: string; bas
     return () => window.clearTimeout(t);
   }, [search]);
 
-  const filters: ReportFilters = { project: project ?? projectFilter, status, priority: priority as ReportFilters["priority"], q, delivery, assignee };
+  // "Held as spam" isn't a status on the report; it's a view of its own.
+  const spam = status === "spam";
+  const filters: ReportFilters = {
+    project: project ?? projectFilter,
+    status: spam ? "all" : status,
+    priority: priority as ReportFilters["priority"],
+    q,
+    delivery,
+    assignee,
+    ...(spam ? { spam: "only" as const } : {}),
+  };
   const reports = useReports(filters);
   const projects = useProjects();
   const members = useMembers();
   const rows = reports.data?.pages.flatMap((p) => p.reports) ?? [];
-  const filtered = status !== "open" || priority || projectFilter || delivery || assignee || q;
+  const held = reports.data?.pages[0]?.held ?? 0;
+  const filtered = status !== app.inboxStatus || priority || projectFilter || delivery || assignee || q;
   const listRef = useRef<HTMLDivElement>(null);
   const lastPicked = useRef<string | null>(null);
 
@@ -85,7 +103,11 @@ export function ReportList({ project, basePath, empty }: { project?: string; bas
 
   const deletePicked = async () => {
     const ids = [...picked];
-    if (!(await confirm({ title: `Delete ${plural(ids.length, "report")}?`, message: "Their attachments go too. Issues already created elsewhere stay where they are.", confirmLabel: "Delete", danger: true }))) return;
+    if (
+      app.confirmDeletes &&
+      !(await confirm({ title: `Delete ${plural(ids.length, "report")}?`, message: "Their attachments go too. Issues already created elsewhere stay where they are.", confirmLabel: "Delete", danger: true }))
+    )
+      return;
     setWorking(true);
     try {
       for (let i = 0; i < ids.length; i += 4) {
@@ -123,7 +145,7 @@ export function ReportList({ project, basePath, empty }: { project?: string; bas
   const focusedId = () => (document.activeElement as HTMLElement | null)?.closest<HTMLElement>("a.list-row")?.dataset.report ?? null;
 
   const onKeyDown = (e: React.KeyboardEvent) => {
-    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (!app.shortcuts || e.metaKey || e.ctrlKey || e.altKey) return;
     const tag = (e.target as HTMLElement).tagName;
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
     const id = focusedId();
@@ -215,6 +237,25 @@ export function ReportList({ project, basePath, empty }: { project?: string; bas
         />
       </div>
 
+      {!spam && held > 0 && (
+        <Callout
+          tone="info"
+          action={
+            <Button size="sm" onClick={() => setStatus("spam")}>
+              Review
+            </Button>
+          }
+        >
+          {plural(held, "report")} {held === 1 ? "is" : "are"} being held as likely spam. {held === 1 ? "It wasn't" : "They weren't"} sent to your destinations and nobody was emailed about{" "}
+          {held === 1 ? "it" : "them"}.
+        </Callout>
+      )}
+      {spam && (
+        <Callout tone="warning">
+          Held back as likely spam: stored, never delivered, and deleted after a week. Open one and choose <strong>Not spam</strong> to send it on, or block the reporter.
+        </Callout>
+      )}
+
       {reports.isPending ? (
         <SkeletonRows rows={6} />
       ) : reports.isError ? (
@@ -223,7 +264,11 @@ export function ReportList({ project, basePath, empty }: { project?: string; bas
         </Callout>
       ) : !rows.length ? (
         <div className="list">
-          {filtered ? (
+          {spam ? (
+            <EmptyState icon={InboxIcon} title="Nothing held back">
+              Reports that look like spam are held here instead of being delivered. There are none.
+            </EmptyState>
+          ) : filtered ? (
             <EmptyState icon={MagnifierIcon} title="No matching reports">
               Nothing matches these filters. Try a different status or search.
             </EmptyState>
@@ -266,6 +311,7 @@ export function ReportList({ project, basePath, empty }: { project?: string; bas
                 to={`${basePath}/${r.id}`}
                 current={r.id === reportId}
                 showProject={!project}
+                meta={app.rowMeta}
                 picked={picked.includes(r.id)}
                 onPick={(on, range) => pick(r.id, on, range)}
                 choosing={picked.length > 0}
@@ -275,7 +321,7 @@ export function ReportList({ project, basePath, empty }: { project?: string; bas
           <div className="flex items-center justify-between gap-3 text-xs text-text-3 px-1">
             <span>
               Showing {plural(rows.length, "report")}
-              <span className="hidden md:inline"> · j and k move, e resolves, m assigns to you, x chooses</span>
+              {app.shortcuts && <span className="hidden md:inline"> · j and k move, e resolves, m assigns to you, x chooses</span>}
             </span>
             {reports.hasNextPage && (
               <Button size="sm" busy={reports.isFetchingNextPage} onClick={() => reports.fetchNextPage()}>
@@ -294,6 +340,7 @@ function ReportRow({
   to,
   current,
   showProject,
+  meta: wanted,
   picked,
   onPick,
   choosing,
@@ -302,11 +349,20 @@ function ReportRow({
   to: string;
   current: boolean;
   showProject: boolean;
+  /** Which details go under the title, in the order they are listed. */
+  meta: RowMeta[];
   picked: boolean;
   onPick: (on: boolean, range: boolean) => void;
   choosing: boolean;
 }) {
-  const meta = [showProject && r.projectName, `#${r.number}`, sourceLabel(r.source), r.environment, r.reporterEmail].filter(Boolean);
+  const parts: Record<RowMeta, string | false | null | undefined> = {
+    project: showProject && r.projectName,
+    number: `#${r.number}`,
+    source: sourceLabel(r.source),
+    environment: r.environment,
+    reporter: r.reporterEmail,
+  };
+  const meta = wanted.map((m) => parts[m]).filter(Boolean);
   return (
     <Link to={to} className="list-row" aria-current={current || undefined} data-report={r.id}>
       {/* Shown once something is chosen, or on hover, so the list stays quiet. */}

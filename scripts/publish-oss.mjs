@@ -11,12 +11,20 @@
  * paths and refuses to guess: a new top-level directory has to be listed
  * here or the export stops and says so.
  *
- * What's held back is the integration catalogue — the hundred-odd
+ * Two things stay behind. The integration catalogue — the hundred-odd
  * token-based services — because that is the work the hosted service sells.
+ * And the hosted business: the price list, Stripe, the subscription screens,
+ * the company pages and the legal documents, none of which mean anything on
+ * somebody else's server. The second group is registered in two files,
+ * web/src/hosted.tsx and server/hosted.ts, which are replaced here by copies
+ * that register nothing — so the router, the footer, the settings rail and
+ * the API description are written once and come out right in both editions.
+ *
  * Everything else ships: intake, the outbox, the eleven hand-written
- * providers, source maps, tokens, the audit log, MCP, the CLI and the SDKs.
- * Plans and billing come along too and are inert, because EDITION defaults
- * to "selfhost": every feature on, limits from the operator's own .env.
+ * providers, duplicates, source maps, tokens, the audit log, MCP, the CLI,
+ * the SDKs, the documentation and its machine-readable twin. Plans and their
+ * limits come along and are inert, because EDITION defaults to "selfhost":
+ * every feature on, limits from the operator's own .env.
  */
 
 import { execFileSync } from "node:child_process";
@@ -31,11 +39,15 @@ const INCLUDE = [
   "server",
   "web",
   "widget",
+  "shared",
   "drizzle",
   "mcp",
   "cli",
   "sdk",
   "scripts/build-widget.mjs",
+  "scripts/build-llms.mjs",
+  "scripts/llm",
+  "scripts/mail-preview.ts",
   "scripts/backup.sh",
   "scripts/restore.sh",
   "package.json",
@@ -53,6 +65,13 @@ const INCLUDE = [
 
 /** Things in those paths that stay behind. */
 const EXCLUDE = [
+  // The hosted business: taking the money, and the company that takes it.
+  "server/api/billing.ts",
+  "server/billing/stripe.ts",
+  "server/billing/stripe.test.ts",
+  "web/src/pages/settings/Billing.tsx",
+  "web/src/pages/site/hosted",
+  "web/src/pages/support/content/billing.tsx",
   // The catalogue is the hosted service's own work.
   "server/integrations/catalogue/trackers.ts",
   "server/integrations/catalogue/helpdesk.ts",
@@ -61,17 +80,25 @@ const EXCLUDE = [
   "server/integrations/catalogue/ops.ts",
   // It asserts on every catalogue entry, so it goes with them.
   "server/integrations/catalogue/catalogue.test.ts",
-  // Build output and anything secret, wherever it turns up.
+  // Build output, scratch space and anything secret, wherever it turns up.
   "node_modules",
   "dist",
+  "tmp",
   ".env",
   "backups",
   "data",
 ];
 
+/** Replaced by the open edition's own, so they aren't copied either. */
+const REPLACED = ["LICENSE", "README.md"];
+
 /**
- * The one generated file. `notify.ts` stays because reporter email is built
- * on its mailers, so the shim keeps the notifiers and drops the rest.
+ * The files the export writes itself, each standing in for one the hosted
+ * service keeps. They are the only place the two editions differ in code
+ * rather than in content, so there are deliberately few of them.
+ *
+ * `notify.ts` stays because reporter email is built on its mailers, so the
+ * catalogue shim keeps the notifiers and drops the rest.
  */
 const CATALOGUE_SHIM = `import type { Provider } from "../types";
 import { notifiers } from "./notify";
@@ -86,6 +113,58 @@ import { notifiers } from "./notify";
  */
 export const catalogue: Provider[] = [...notifiers];
 `;
+
+const SERVER_HOSTED_SHIM = `import { Hono } from "hono";
+import type { AppEnv } from "./http";
+import type { ApiDoc } from "./api/openapi";
+
+/**
+ * What the hosted service adds to this server. In the open edition: nothing.
+ *
+ * There is no subscription to manage here, so there is no Stripe, no
+ * checkout and no invoice list. Plans still exist in server/billing, because
+ * an install still has limits \u2014 they come from your own environment rather
+ * than from a price, and EDITION defaults to "selfhost", which turns every
+ * feature on and leaves the limits to you.
+ */
+
+export const billingRoutes = new Hono<AppEnv>();
+export const billingWebhook = new Hono();
+export const hostedApiDocs: Record<string, ApiDoc> = {};
+export const hostedDaily: Array<{ name: string; run: () => Promise<string | null> }> = [];
+`;
+
+const WEB_HOSTED_SHIM = `import type { ComponentType } from "react";
+import type { FootColumn, FootLink } from "./pages/site/chrome";
+import type { Article } from "./pages/support/types";
+
+/**
+ * What the hosted service adds to this build. In the open edition: nothing.
+ *
+ * No price list, no subscription screen, no company pages and no terms
+ * somebody else wrote. The router, the navigation, the footer, the settings
+ * rail and the support index read these lists rather than hard-coding what
+ * they contain, so an empty one simply means the page isn't there.
+ */
+
+export type HostedRoute = { path: string; Page: ComponentType };
+
+export const hostedRoutes: HostedRoute[] = [];
+export const hostedRedirects: Array<{ from: string; to: string }> = [];
+export const hostedNav: Array<{ to: string; label: string }> = [];
+export const hostedProductLinks: FootLink[] = [];
+export const hostedSupportLinks: FootLink[] = [];
+export const hostedFootColumns: FootColumn[] = [];
+export const hostedSettings: Array<{ path: string; Page: ComponentType; heading: string; label: string; icon: ComponentType<{ size?: number }>; finds: string }> = [];
+export const hostedArticles: Article[] = [];
+`;
+
+/** Written after the copy, each replacing a file the hosted service keeps. */
+const SHIMS = {
+  "server/integrations/catalogue/index.ts": CATALOGUE_SHIM,
+  "server/hosted.ts": SERVER_HOSTED_SHIM,
+  "web/src/hosted.tsx": WEB_HOSTED_SHIM,
+};
 
 const args = process.argv.slice(2);
 const flag = (name) => args.includes(`--${name}`);
@@ -107,7 +186,7 @@ const unlisted = fs
   .readdirSync(root, { withFileTypes: true })
   .map((e) => e.name)
   .filter((name) => !name.startsWith(".") || [".gitignore", ".env.example", ".dockerignore"].includes(name))
-  .filter((name) => !["node_modules", "dist", "backups", "data", "LICENSE", "README.md"].includes(name))
+  .filter((name) => !EXCLUDE.includes(name) && !REPLACED.includes(name))
   .filter((name) => !INCLUDE.some((inc) => inc === name || inc.startsWith(`${name}/`)));
 
 if (unlisted.length) {
@@ -157,7 +236,7 @@ for (const include of INCLUDE) {
   copy(from, path.join(out, include));
 }
 
-fs.writeFileSync(path.join(out, "server/integrations/catalogue/index.ts"), CATALOGUE_SHIM);
+for (const [file, contents] of Object.entries(SHIMS)) fs.writeFileSync(path.join(out, file), contents);
 fs.copyFileSync(path.join(root, "scripts/oss/LICENSE"), path.join(out, "LICENSE"));
 fs.copyFileSync(path.join(root, "scripts/oss/README.md"), path.join(out, "README.md"));
 
@@ -169,7 +248,7 @@ delete pkg.scripts["db:generate"];
 fs.writeFileSync(path.join(out, "package.json"), `${JSON.stringify(pkg, null, 2)}\n`);
 
 console.log(`  ${files} files`);
-console.log(`  ${EXCLUDE.filter((e) => e.startsWith("server/")).length} held back`);
+console.log(`  ${EXCLUDE.filter((e) => e.startsWith("server/") || e.startsWith("web/")).length} held back, ${Object.keys(SHIMS).length} replaced`);
 
 /* ------------------------------------------------------------------ verify */
 

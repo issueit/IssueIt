@@ -4,6 +4,7 @@ import { config } from "../config";
 import { scopeFor } from "../auth/tokens";
 import { featureForPath } from "../billing/entitlements";
 import { cheapestWith } from "../billing/plans";
+import { hostedApiDocs } from "../hosted";
 import { scopes } from "../db/schema";
 
 /**
@@ -14,7 +15,7 @@ import { scopes } from "../db/schema";
  * quietly going undocumented.
  */
 
-type Doc = {
+export type ApiDoc = {
   summary: string;
   description?: string;
   /** Query parameters, as a zod object. */
@@ -36,6 +37,8 @@ const reportFilters = z.object({
   number: z.number().int().optional(),
   since: str().optional(),
   delivery: z.enum(["failed"]).optional(),
+  /** Reports held back as likely spam are left out unless you ask for them. */
+  spam: z.enum(["only", "with"]).optional(),
   cursor: str().optional(),
   limit: z.number().int().optional(),
 });
@@ -50,7 +53,7 @@ const deliveryFilters = z.object({
   limit: z.number().int().optional(),
 });
 
-const docs: Record<string, Doc> = {
+const docs: Record<string, ApiDoc> = {
   "GET /whoami": { tag: "Account", summary: "Who this token belongs to", description: "The organisation, role, scopes and visible projects. The first call any client should make." },
   "GET /": { tag: "Organisation", summary: "Read the organisation" },
   "PATCH /": { tag: "Organisation", summary: "Change the organisation's name or settings" },
@@ -125,7 +128,13 @@ const docs: Record<string, Doc> = {
     body: z.object({ grouping: z.object({}).loose().optional(), redaction: z.object({}).loose().optional(), text: str().optional(), sample: z.number().int().optional() }),
   },
 
-  "GET /reports": { tag: "Reports", summary: "Search reports", description: "Newest first. Duplicates are folded into the report they joined.", query: reportFilters },
+  "GET /reports": {
+    tag: "Reports",
+    summary: "Search reports",
+    description:
+      "Newest first. Duplicates are folded into the report they joined, and reports held back as likely spam are left out — pass `spam=only` for those. `held` in the response counts them.",
+    query: reportFilters,
+  },
   "POST /reports/:id/notes": { tag: "Reports", summary: "Leave an internal note", description: "Never delivered anywhere and never shown to the reporter.", body: z.object({ body: str() }) },
   "PATCH /reports/:id/notes/:noteId": { tag: "Reports", summary: "Edit your own note", body: z.object({ body: str() }) },
   "DELETE /reports/:id/notes/:noteId": { tag: "Reports", summary: "Delete a note" },
@@ -133,6 +142,22 @@ const docs: Record<string, Doc> = {
   "PATCH /reports/:id": { tag: "Reports", summary: "Change a report's status or priority", body: z.object({ status: z.enum(["new", "investigating", "resolved", "closed"]).optional(), priority: z.enum(["low", "medium", "high", "critical"]).optional() }) },
   "POST /reports/:id/group": { tag: "Reports", summary: "Mark a report a duplicate of another", body: z.object({ into: z.number().int() }) },
   "POST /reports/:id/separate": { tag: "Reports", summary: "Take a report out of its group" },
+  "POST /reports/:id/not-spam": {
+    tag: "Reports",
+    summary: "Release a report held back as spam",
+    description: "Delivers it to the project's destinations and emails the reporter, as though it had just arrived. From then on it counts against the monthly allowance.",
+  },
+  "POST /reports/:id/block": {
+    tag: "Reports",
+    summary: "Block the reporter who sent this",
+    description:
+      "Adds them to the project's block list; later submissions are answered as though they had been filed, and stored nowhere. The address itself is never exposed — what is blocked is the keyed hash this report carries.",
+    body: z.object({
+      ip: z.boolean().optional().describe("Block the address this report came from. Default true."),
+      email: z.boolean().optional().describe("Also block the reporter's email address. Default false."),
+      spam: z.boolean().optional().describe("Hold this report back as spam too. Default true."),
+    }),
+  },
   "DELETE /reports/:id": { tag: "Reports", summary: "Delete a report and its files" },
   "GET /attachments/:id": { tag: "Reports", summary: "Download an attachment" },
 
@@ -166,10 +191,7 @@ const docs: Record<string, Doc> = {
     description: 'Queue depth, the age of the oldest waiting delivery, paused destinations and the day\'s failure rate, with a status of "ok", "degraded" or "behind" to alert on.',
   },
   "GET /usage": { tag: "Insight", summary: "Reports, storage and deliveries against the plan's limits" },
-  "GET /billing": { tag: "Billing", summary: "The plan, its limits, and what else there is", description: "On a self-hosted install `billable` is false and the limits are the operator's own." },
-  "POST /billing/checkout": { tag: "Billing", summary: "Start a Stripe Checkout session", body: z.object({ plan: z.enum(["solo", "team", "business"]), interval: z.enum(["month", "year"]).optional() }) },
-  "POST /billing/portal": { tag: "Billing", summary: "Open the Stripe customer portal" },
-  "GET /billing/invoices": { tag: "Billing", summary: "Past invoices" },
+  ...hostedApiDocs,
   "GET /notifications": { tag: "Account", summary: "What Issueit emails you about this organisation" },
   "PATCH /notifications": {
     tag: "Account",

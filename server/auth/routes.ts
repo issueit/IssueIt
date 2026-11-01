@@ -8,7 +8,8 @@ import { AppError, badRequest, conflict, forbidden, tooMany } from "../lib/error
 import { newId } from "../lib/ids";
 import { storage } from "../lib/storage";
 import { hit } from "../lib/ratelimit";
-import { startingPlan } from "../billing/entitlements";
+import { hosted, startingPlan } from "../billing/entitlements";
+import { isDisposable } from "../ingest/protection";
 import { queueNotice, sendNoticeNow } from "../mail/notices";
 import { systemMailAvailable } from "../mail/system";
 import { body, clientIp, type AppEnv } from "../http";
@@ -20,15 +21,21 @@ const email = z.string().trim().toLowerCase().email("Enter a valid email address
 const password = z.string().min(10, "Use at least 10 characters.").max(200);
 const name = z.string().trim().min(1, "Enter your name.").max(80);
 
-function throttle(key: string, max = 10) {
-  const r = hit({ key, max, windowMs: 60_000 });
+async function throttle(key: string, max = 10, windowMs = 60_000) {
+  const r = await hit({ key, max, windowMs });
   if (!r.ok) throw tooMany("Too many attempts. Wait a minute and try again.");
 }
 
 export const authRoutes = new Hono<AppEnv>()
   .post("/signup", async (c) => {
     if (!config.allowSignup) throw forbidden("Sign-ups are closed on this server. Ask an owner for an invitation.");
-    throttle(`signup:${clientIp(c)}`, 5);
+    await throttle(`signup:${clientIp(c)}`, 5);
+    /**
+     * A trial is worth something, so a new organisation every few minutes
+     * from one address is worth stopping. The day-long window is the one
+     * that matters: the minute-long one above only slows a script down.
+     */
+    await throttle(`signup:day:${clientIp(c)}`, config.limits.signupsPerIpPerDay, 86_400_000);
     const input = await body(
       c,
       z.object({
@@ -39,6 +46,12 @@ export const authRoutes = new Hono<AppEnv>()
         invitation: z.string().optional(),
       }),
     );
+    // An address nobody keeps can't be written to, so nothing that follows —
+    // verifying it, telling someone their allowance is gone — would ever
+    // arrive. Invited people are exempt: somebody already vouched for them.
+    if (hosted && !input.invitation && isDisposable(input.email)) {
+      throw badRequest("That looks like a throwaway email address. Sign up with an address you can receive mail at.");
+    }
     const existing = await db.query.users.findFirst({ where: eq(schema.users.email, input.email) });
     if (existing) throw conflict("An account with this email already exists. Sign in instead.");
 
@@ -60,8 +73,8 @@ export const authRoutes = new Hono<AppEnv>()
   })
   .post("/login", async (c) => {
     const input = await body(c, z.object({ email, password: z.string().min(1).max(200) }));
-    throttle(`login:${clientIp(c)}`, 20);
-    throttle(`login:${input.email}`, 8);
+    await throttle(`login:${clientIp(c)}`, 20);
+    await throttle(`login:${input.email}`, 8);
     const user = await db.query.users.findFirst({ where: eq(schema.users.email, input.email) });
     // Hash even when the user doesn't exist so timing doesn't reveal accounts.
     const ok = user ? await verifyPassword(input.password, user.passwordHash) : (await hashPassword(input.password), false);
@@ -75,12 +88,12 @@ export const authRoutes = new Hono<AppEnv>()
   /** The second step of signing in: a code from the app, or a recovery code. */
   .post("/second-factor", async (c) => {
     const input = await body(c, z.object({ ticket: z.string().min(1), code: z.string().min(1).max(40) }));
-    throttle(`second-factor:${clientIp(c)}`, 20);
+    await throttle(`second-factor:${clientIp(c)}`, 20);
     const spent = await consumeCode("second-factor", input.ticket);
     if (!spent) throw new AppError(401, "invalid_credentials", "That sign-in attempt has expired. Enter your password again.");
     const user = await db.query.users.findFirst({ where: eq(schema.users.id, spent.userId) });
     if (!user?.totpSecret) throw new AppError(401, "invalid_credentials", "Two-factor isn't set up for this account.");
-    throttle(`second-factor:${user.id}`, 10);
+    await throttle(`second-factor:${user.id}`, 10);
 
     if (verifyTotp(decrypt(user.totpSecret), input.code)) {
       await createSession(c, user.id);
@@ -105,8 +118,8 @@ export const authRoutes = new Hono<AppEnv>()
    */
   .post("/forgot", async (c) => {
     const input = await body(c, z.object({ email }));
-    throttle(`forgot:${clientIp(c)}`, 5);
-    throttle(`forgot:${input.email}`, 3);
+    await throttle(`forgot:${clientIp(c)}`, 5);
+    await throttle(`forgot:${input.email}`, 3);
     const user = await db.query.users.findFirst({ where: eq(schema.users.email, input.email) });
     if (user) {
       const token = await issueCode("reset", user.id);
@@ -121,7 +134,7 @@ export const authRoutes = new Hono<AppEnv>()
   })
   .post("/reset", async (c) => {
     const input = await body(c, z.object({ token: z.string().min(1), password }));
-    throttle(`reset:${clientIp(c)}`, 10);
+    await throttle(`reset:${clientIp(c)}`, 10);
     const spent = await consumeCode("reset", input.token);
     if (!spent) throw badRequest("That reset link has expired or has already been used. Ask for another.");
     await db
@@ -142,7 +155,7 @@ export const authRoutes = new Hono<AppEnv>()
   /** Proving an address. Public, because the link is usually opened signed out. */
   .post("/verify", async (c) => {
     const input = await body(c, z.object({ token: z.string().min(1) }));
-    throttle(`verify:${clientIp(c)}`, 20);
+    await throttle(`verify:${clientIp(c)}`, 20);
     const spent = await consumeCode("verify", input.token);
     if (!spent) throw badRequest("That confirmation link has expired or has already been used.");
     const before = await db.query.users.findFirst({ where: eq(schema.users.id, spent.userId), columns: { name: true, emailVerifiedAt: true } });
@@ -239,7 +252,7 @@ export const meRoutes = new Hono<AppEnv>()
   /** Another copy of the confirmation link. */
   .post("/verify/send", async (c) => {
     const user = c.get("user");
-    throttle(`verify-send:${user.id}`, 3);
+    await throttle(`verify-send:${user.id}`, 3);
     if (user.emailVerifiedAt) return c.json({ ok: true, alreadyVerified: true });
     await sendVerification(user.id, user.email);
     return c.json({ ok: true });
@@ -259,7 +272,7 @@ export const meRoutes = new Hono<AppEnv>()
   .post("/totp/confirm", async (c) => {
     const input = await body(c, z.object({ code: z.string().min(1).max(12) }));
     const user = c.get("user");
-    throttle(`totp-confirm:${user.id}`, 10);
+    await throttle(`totp-confirm:${user.id}`, 10);
     if (!user.totpSecret) throw badRequest("Start again: there's no key waiting to be confirmed.");
     if (user.totpEnabledAt) throw conflict("Two-factor is already on.");
     if (!verifyTotp(decrypt(user.totpSecret), input.code)) throw badRequest("That code isn't right. Codes change every 30 seconds, so try the current one.");
@@ -274,7 +287,7 @@ export const meRoutes = new Hono<AppEnv>()
   .post("/totp/recovery", async (c) => {
     const input = await body(c, z.object({ password: z.string().min(1) }));
     const user = c.get("user");
-    throttle(`totp-recovery:${user.id}`, 5);
+    await throttle(`totp-recovery:${user.id}`, 5);
     if (!(await verifyPassword(input.password, user.passwordHash))) throw badRequest("That password isn't right.");
     if (!user.totpEnabledAt) throw badRequest("Two-factor isn't on for this account.");
     const codes = newRecoveryCodes();
@@ -287,7 +300,7 @@ export const meRoutes = new Hono<AppEnv>()
   .delete("/totp", async (c) => {
     const input = await body(c, z.object({ password: z.string().min(1) }));
     const user = c.get("user");
-    throttle(`totp-off:${user.id}`, 5);
+    await throttle(`totp-off:${user.id}`, 5);
     if (!(await verifyPassword(input.password, user.passwordHash))) throw badRequest("That password isn't right.");
     await db
       .update(schema.users)
@@ -298,7 +311,7 @@ export const meRoutes = new Hono<AppEnv>()
   .post("/password", async (c) => {
     const input = await body(c, z.object({ current: z.string().min(1), next: password }));
     const user = c.get("user");
-    throttle(`password:${user.id}`, 5);
+    await throttle(`password:${user.id}`, 5);
     if (!(await verifyPassword(input.current, user.passwordHash))) throw badRequest("Your current password isn't right.");
     await db
       .update(schema.users)

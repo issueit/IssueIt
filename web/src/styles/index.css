@@ -28,6 +28,12 @@
   --color-success: var(--success);
   --font-sans: var(--font-sans);
   --font-mono: var(--font-mono);
+  /* So `font-medium` in a component is the same weight as --fw-medium in CSS,
+     and the Appearance text-weight setting moves both together. */
+  --font-weight-normal: var(--fw-regular);
+  --font-weight-medium: var(--fw-medium);
+  --font-weight-semibold: var(--fw-strong);
+  --font-weight-bold: var(--fw-heavy);
   --text-2xs: var(--fs-2xs);
   --text-xs: var(--fs-xs);
   --text-sm: var(--fs-sm);
@@ -60,6 +66,7 @@
     color: var(--text);
     font-family: var(--font-sans);
     font-size: var(--fs-md);
+    font-weight: var(--fw-regular);
     line-height: var(--lh);
     font-feature-settings: "cv11", "ss01", "ss03";
     -webkit-font-smoothing: antialiased;

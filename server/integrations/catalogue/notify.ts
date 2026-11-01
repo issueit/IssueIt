@@ -1,7 +1,7 @@
 import { htmlBody, plainBody, shortLine, titleFor, truncate } from "../format";
 import { bearer, IntegrationError } from "../http";
 import type { Provider, ReportPayload } from "../types";
-import { baseUrl, basic, call, define, optional, secret, seg, text, type Spec } from "./define";
+import { baseUrl, basic, call, define, hostName, optional, secret, seg, text, type Spec } from "./define";
 import { awsRequest } from "./signing";
 
 /** Push notifications, SMS and email. */
@@ -289,7 +289,7 @@ export const mailers: Record<string, Mailer> = {
     const extra: Record<string, string> = {};
     if (m.replyTo) extra["h:Reply-To"] = m.replyTo;
     for (const [k, v] of Object.entries(m.headers ?? {})) extra[`h:${k}`] = v;
-    const { data, status } = await call("Mailgun", `https://${creds.host || "api.mailgun.net"}/v3/${seg(creds.domain)}/messages`, {
+    const { data, status } = await call("Mailgun", `https://${hostName(creds.host, "api.mailgun.net")}/v3/${seg(creds.domain)}/messages`, {
       method: "POST",
       headers: basic("api", creds.token),
       form: { from: m.from, to: m.to.join(","), subject: m.subject, text: m.text, html: m.html, "o:tag": "issueit", ...extra },
@@ -338,7 +338,7 @@ export const mailers: Record<string, Mailer> = {
     return { id: String(message?.To?.[0]?.MessageID ?? ""), status };
   },
   async sparkpost(creds, m) {
-    const { data, status } = await call("SparkPost", `https://${creds.host || "api.sparkpost.com"}/api/v1/transmissions`, {
+    const { data, status } = await call("SparkPost", `https://${hostName(creds.host, "api.sparkpost.com")}/api/v1/transmissions`, {
       method: "POST",
       headers: { authorization: creds.token },
       json: {

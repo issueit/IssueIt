@@ -7,8 +7,9 @@ import { Field, Input } from "../../components/ui/Field";
 import { Callout } from "../../components/ui/feedback";
 import { Logo } from "../../components/app/Logo";
 
-/** Only same-site paths are followed after sign-in. */
-const safeNext = (next: string | null) => (next && next.startsWith("/") && !next.startsWith("//") ? next : "/dashboard");
+/** Only same-site paths are followed after sign-in. With nowhere particular to
+ *  go, /start sends you to whichever page you chose in settings. */
+const safeNext = (next: string | null) => (next && next.startsWith("/") && !next.startsWith("//") ? next : "/start");
 
 export function AuthFrame({ title, subtitle, children, footer }: { title: string; subtitle?: ReactNode; children: ReactNode; footer?: ReactNode }) {
   return (
@@ -362,7 +363,7 @@ export function Reset() {
       </AuthFrame>
     );
   }
-  if (ticket) return <SecondFactor ticket={ticket} next="/dashboard" onRestart={() => navigate("/login", { replace: true })} />;
+  if (ticket) return <SecondFactor ticket={ticket} next="/start" onRestart={() => navigate("/login", { replace: true })} />;
 
   return (
     <AuthFrame title="Choose a new password" subtitle="Everything signed in before now will be signed out.">
@@ -380,7 +381,7 @@ export function Reset() {
               return;
             }
             qc.clear();
-            navigate("/dashboard", { replace: true });
+            navigate("/start", { replace: true });
           } catch (err) {
             setError(err);
           } finally {
@@ -441,7 +442,7 @@ export function VerifyEmail() {
   return (
     <AuthFrame title={state === "done" ? "Address confirmed" : "Confirming…"} subtitle={state === "done" ? "Thanks. That's everything." : undefined}>
       {state === "done" && (
-        <Link to="/dashboard" className="text-sm text-text underline underline-offset-2">
+        <Link to="/start" className="text-sm text-text underline underline-offset-2">
           Open Issueit
         </Link>
       )}

@@ -104,6 +104,8 @@ export type PlanLimits = {
   retentionDays: number;
   attachmentBytes: number;
   attachmentsPerReport: number;
+  /** Everything this organisation's attachments may take up at once. */
+  storageBytes: number;
   reportsPerKeyPerMinute: number;
   tokenRequestsPerMinute: number;
 };
@@ -398,6 +400,31 @@ export type ProjectRules = {
   };
 };
 
+/**
+ * What this project does about submissions nobody asked for.
+ *
+ * Kept out of `rules` on purpose: grouping and redaction are a paid feature,
+ * and not being spammed isn't. Every plan gets this.
+ */
+export type ProjectProtection = {
+  spam?: {
+    /** Off by default only for a project that never takes public reports. */
+    enabled?: boolean;
+    /** Score at or above which a report is held back. Higher is more permissive. */
+    threshold?: number;
+    /** For a project whose reporters paste links as a matter of course. */
+    allowLinks?: boolean;
+    /** Words of this product's own that mark a submission as spam. */
+    keywords?: string[];
+  };
+  /**
+   * Reporters this project won't take anything from. Addresses and domains
+   * are typed in; `ipHashes` are copied from a report by the dashboard,
+   * because the stored hash is keyed and there is no address to show.
+   */
+  block?: { ipHashes?: string[]; ips?: string[]; emails?: string[]; domains?: string[] };
+};
+
 export type StoredLogo = { storageKey: string; contentType: string; sizeBytes: number; hash: string };
 
 export const projects = pgTable(
@@ -419,6 +446,8 @@ export const projects = pgTable(
     groupDuplicates: boolean("group_duplicates").notNull().default(true),
     /** Grouping and redaction rules of this project's own. */
     rules: jsonb("rules").$type<ProjectRules>().notNull().default({}),
+    /** Spam handling and blocked reporters. See ProjectProtection. */
+    protection: jsonb("protection").$type<ProjectProtection>().notNull().default({}),
     reportSeq: integer("report_seq").notNull().default(0),
     lastReportAt: ts("last_report_at"),
     createdAt: created(),
@@ -629,11 +658,30 @@ export const reports = pgTable(
     /** Keyed hash of the submitter's IP, for abuse throttling only. */
     ipHash: text("ip_hash"),
     viaKeyId: text("via_key_id"),
+    /**
+     * Held back as likely spam: stored and visible, but never delivered and
+     * never emailed about. Cleared when someone says it isn't spam, which
+     * delivers it as if it had just arrived. Nothing is thrown away on a
+     * guess.
+     */
+    quarantinedAt: ts("quarantined_at"),
+    spamScore: integer("spam_score"),
+    /** Why, in the words the dashboard shows. */
+    spamReasons: text("spam_reasons").array().notNull().default(sql`'{}'::text[]`),
+    /** Hash of the title and description, to spot the same text arriving again and again. */
+    contentHash: text("content_hash"),
     createdAt: created(),
     updatedAt: updated(),
   },
   (t) => [
     index("reports_org_created_idx").on(t.orgId, t.createdAt),
+    index("reports_content_idx").on(t.projectId, t.contentHash, t.createdAt),
+    /**
+     * Only the held-back ones. Every listing counts them so the dashboard can
+     * say how many are waiting, and a partial index keeps that count off the
+     * main table however many real reports an organisation has.
+     */
+    index("reports_held_idx").on(t.orgId, t.projectId).where(sql`${t.quarantinedAt} is not null`),
     index("reports_project_created_idx").on(t.projectId, t.createdAt),
     uniqueIndex("reports_project_number_idx").on(t.projectId, t.number),
     index("reports_fingerprint_idx").on(t.projectId, t.fingerprint),
@@ -1051,4 +1099,22 @@ export const oauthStates = pgTable("oauth_states", {
   codeVerifier: text("code_verifier"),
   expiresAt: ts("expires_at").notNull(),
   createdAt: created(),
+});
+
+/**
+ * Rate limit counters, in the database rather than in a process's memory.
+ *
+ * In memory they were free and nearly right: free because no round trip,
+ * nearly right because a restart cleared every window and a second instance
+ * had its own set, so the real limit was the configured one times however
+ * many copies of Issueit happened to be running. A counter that an attacker
+ * can reset by waiting for a deploy isn't a limit, so it lives here, where
+ * every instance counts into the same row.
+ */
+export const rateLimits = pgTable("rate_limits", {
+  /** What is being counted, e.g. "ingest:ip:prj_123:<hash>". */
+  key: text("key").primaryKey(),
+  count: integer("count").notNull().default(0),
+  /** When the window ends and the count starts again. */
+  resetAt: ts("reset_at").notNull(),
 });

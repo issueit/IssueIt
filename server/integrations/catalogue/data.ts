@@ -1,7 +1,7 @@
 import { environmentLine, plainBody, priorityLabel, titleFor } from "../format";
 import { bearer, IntegrationError } from "../http";
 import type { Provider, ReportPayload } from "../types";
-import { baseUrl, call, define, optional, secret, seg, text, type Spec } from "./define";
+import { baseUrl, call, define, hostName, optional, secret, seg, text, type Spec } from "./define";
 import { googleToken } from "./signing";
 
 /** Spreadsheets and databases: each new report becomes a row. */
@@ -50,11 +50,11 @@ const specs: Spec[] = [
     ],
     target: { label: "Sheet", fields: [text("sheet", "Sheet ID", "In the sheet, open File, then Properties."), bodyColumn] },
     async check(creds) {
-      const { data } = await call("Smartsheet", `https://${creds.host || "api.smartsheet.com"}/2.0/users/me`, { headers: bearer(creds.token) });
+      const { data } = await call("Smartsheet", `https://${hostName(creds.host, "api.smartsheet.com")}/2.0/users/me`, { headers: bearer(creds.token) });
       return { label: data.email };
     },
     async send({ report, creds, target, isTest }) {
-      const api = `https://${creds.host || "api.smartsheet.com"}/2.0/sheets/${seg(target.sheet)}`;
+      const api = `https://${hostName(creds.host, "api.smartsheet.com")}/2.0/sheets/${seg(target.sheet)}`;
       const { data: sheet } = await call("Smartsheet", `${api}?pageSize=1&include=objectValue`, { headers: bearer(creds.token), thing: "sheet" });
       const primary = sheet.columns?.find((c: any) => c.primary);
       if (!primary) throw new IntegrationError("Smartsheet didn't return the sheet's primary column.", { retryable: false });

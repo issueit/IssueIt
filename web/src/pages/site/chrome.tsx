@@ -3,12 +3,13 @@ import { Link, useLocation } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useMe } from "../../lib/session";
 import { setTheme, useAppearance, type ThemePref } from "../../lib/theme";
-import { AltArrowRightIcon, MonitorIcon, MoonIcon, SunIcon } from "../../components/ui/icons";
+import { AltArrowRightIcon, ArrowUpIcon, MonitorIcon, MoonIcon, SunIcon } from "../../components/ui/icons";
 import { Segmented } from "../../components/ui/controls";
 import { AsciiField } from "./AsciiField";
 import { arriveAtHash, useReveal } from "./motion";
 import { company } from "./company";
 import { DocsLink } from "../../lib/docs-link";
+import { hostedFootColumns, hostedNav, hostedProductLinks, hostedSupportLinks } from "../../hosted";
 import "./site.css";
 
 /** Shared frame for every public page: header, background, footer. */
@@ -18,6 +19,15 @@ export function Mark({ size = 22 }: { size?: number }) {
     <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden className="site-mark">
       <rect width="32" height="32" rx="8" fill="var(--accent)" />
       <path d="M11 9.5h10M16 9.5v13M11 22.5h10" pathLength={1} stroke="var(--accent-fg)" strokeWidth="2.4" strokeLinecap="round" fill="none" />
+    </svg>
+  );
+}
+
+/** The four-pointed star that means "this is for the model, not for you". */
+function Spark({ size = 13 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden fill="currentColor">
+      <path d="M12 2c.5 5 2.5 7.5 8 10-5.5 2.5-7.5 5-8 10-.5-5-2.5-7.5-8-10 5.5-2.5 7.5-5 8-10z" />
     </svg>
   );
 }
@@ -61,8 +71,13 @@ export function Nav() {
               {label}
             </a>
           ))}
-          <Link to="/pricing">Pricing</Link>
+          {hostedNav.map((link) => (
+            <Link key={link.to} to={link.to}>
+              {link.label}
+            </Link>
+          ))}
           <Link to="/platform">Platform</Link>
+          <Link to="/mcp">MCP</Link>
           <DocsLink>Docs</DocsLink>
           <Link to="/articles/en">Support</Link>
         </nav>
@@ -88,9 +103,10 @@ export function Nav() {
   );
 }
 
-type FootLink = { label: string; to: string; note?: string; docs?: true };
+export type FootLink = { label: string; to: string; note?: string; docs?: true };
+export type FootColumn = { title: string; links: FootLink[] };
 
-const columns: Array<{ title: string; links: FootLink[] }> = [
+const columns: FootColumn[] = [
   {
     title: "Product",
     links: [
@@ -98,8 +114,8 @@ const columns: Array<{ title: string; links: FootLink[] }> = [
       { label: "Destinations", to: "/#destinations", note: "134" },
       { label: "Retries and recovery", to: "/#reliability" },
       { label: "Self-hosting", to: "/#self-host" },
-      { label: "Pricing", to: "/pricing" },
       { label: "The platform", to: "/platform" },
+      { label: "MCP for agents", to: "/mcp" },
       { label: "Documentation", to: "/", docs: true },
       { label: "Sign in", to: "/login" },
     ],
@@ -119,6 +135,8 @@ const columns: Array<{ title: string; links: FootLink[] }> = [
       { label: "Error codes", to: "/reference/errors", docs: true },
       { label: "Environment variables", to: "/reference/environment", docs: true },
       { label: "openapi.json", to: "/openapi.json" },
+      { label: "llms.txt", to: "/llms.txt" },
+      { label: "Docs for machines", to: "/llm" },
     ],
   },
   {
@@ -129,27 +147,20 @@ const columns: Array<{ title: string; links: FootLink[] }> = [
       { label: "Reports aren't arriving", to: "/articles/en/reports-are-not-reaching-your-issue-tracker" },
       { label: "Too many reports for one bug", to: "/articles/en/stop-getting-hundreds-of-reports-for-one-bug" },
       { label: "Run Issueit yourself", to: "/articles/en/install-issueit-on-your-own-server" },
-      { label: "Write to us", to: `mailto:${company.email.support}` },
     ],
   },
-  {
-    title: "Company",
-    links: [
-      { label: "About us", to: "/about" },
-      { label: "Blog", to: "/blog" },
-      { label: "Work for us", to: "/careers" },
-      { label: "Contact", to: `mailto:${company.email.hello}` },
-    ],
-  },
-  {
-    title: "Legal",
-    links: [
-      { label: "Terms of service", to: "/legal/terms" },
-      { label: "Privacy policy", to: "/legal/privacy" },
-      { label: "Cookie policy", to: "/legal/cookies" },
-      { label: "Report a vulnerability", to: `mailto:${company.email.security}` },
-    ],
-  },
+];
+
+/** The product's own columns, plus the ones the hosted service brings with it. */
+const footColumns: FootColumn[] = [
+  ...columns.map((col) =>
+    col.title === "Product"
+      ? { ...col, links: [...col.links, ...hostedProductLinks] }
+      : col.title === "Support"
+        ? { ...col, links: [...col.links, ...hostedSupportLinks] }
+        : col,
+  ),
+  ...hostedFootColumns,
 ];
 
 function FootAnchor({ link }: { link: FootLink }) {
@@ -161,7 +172,7 @@ function FootAnchor({ link }: { link: FootLink }) {
   );
   if (link.docs) return <DocsLink to={link.to}>{body}</DocsLink>;
   // Landing-page sections, files and mail links are plain anchors; pages use the router.
-  if (link.to.startsWith("mailto:") || link.to.startsWith("/#") || link.to.endsWith(".json")) return <a href={link.to}>{body}</a>;
+  if (link.to.startsWith("mailto:") || link.to.startsWith("/#") || /\.[a-z]+$/.test(link.to)) return <a href={link.to}>{body}</a>;
   return <Link to={link.to}>{body}</Link>;
 }
 
@@ -227,7 +238,7 @@ export function Footer() {
             <Status />
           </div>
           <nav className="foot-cols" aria-label="Footer">
-            {columns.map((col) => (
+            {footColumns.map((col) => (
               <div key={col.title} className="foot-col" data-col={col.title.toLowerCase()}>
                 <h2>{col.title}</h2>
                 <ul>
@@ -248,6 +259,17 @@ export function Footer() {
               {ch}
             </span>
           ))}
+        </div>
+
+        <div className="foot-agent">
+          <Link to="/llm" className="foot-ai">
+            <Spark />
+            Hey AI, learn about us
+          </Link>
+          <button type="button" className="foot-up" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>
+            Back to top
+            <ArrowUpIcon size={14} />
+          </button>
         </div>
 
         <div className="foot-base">

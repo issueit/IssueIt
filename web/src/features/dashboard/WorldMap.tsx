@@ -5,7 +5,7 @@ import { ChoroplethController, ColorLogarithmicScale, ColorScale, GeoFeature, Pr
 import worldUrl from "world-atlas/countries-110m.json?url";
 import type { Count } from "../../lib/types";
 import { Skeleton } from "../../components/ui/feedback";
-import { ChartCanvas, type VizTheme } from "./chart";
+import { ChartCanvas, RESIZE_DELAY, tipOptions, type VizTheme } from "./chart";
 import { numericCode } from "./countries";
 import { countryName } from "./format";
 
@@ -73,21 +73,14 @@ export function WorldMap({ countries, theme, height, scale, animations }: { coun
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        resizeDelay: RESIZE_DELAY,
         animation: animations ? { duration: 260 } : false,
         showGraticule: false,
         plugins: {
           legend: { display: false },
           tooltip: {
-            backgroundColor: theme.tooltipBg,
-            titleColor: theme.text,
-            bodyColor: theme.text2,
-            borderColor: theme.axis,
-            borderWidth: 1,
-            padding: 9,
-            cornerRadius: 8,
+            ...tipOptions(),
             displayColors: false,
-            titleFont: { family: theme.font, size: 12, weight: 600 },
-            bodyFont: { family: theme.font, size: 12 },
             callbacks: {
               label: (ctx) => {
                 const v = (ctx.raw as { value: number | null }).value;

@@ -43,7 +43,7 @@ const startInput = z.object({
 export const deviceRoutes = new Hono<AppEnv>()
   .post("/", async (c) => {
     const input = await body(c, startInput);
-    const limit = hit({ key: `device:start:${clientIp(c)}`, max: 10, windowMs: 600_000 });
+    const limit = await hit({ key: `device:start:${clientIp(c)}`, max: 10, windowMs: 600_000 });
     if (!limit.ok) throw tooMany("Too many sign-in attempts from here. Try again shortly.");
 
     await db.delete(schema.deviceCodes).where(lt(schema.deviceCodes.expiresAt, new Date()));
@@ -73,7 +73,7 @@ export const deviceRoutes = new Hono<AppEnv>()
   .post("/token", async (c) => {
     const input = await body(c, z.object({ device_code: z.string().min(10).max(200) }));
     const id = sha256(input.device_code);
-    const limit = hit({ key: `device:poll:${id}`, max: 2, windowMs: POLL_SECONDS * 1000 });
+    const limit = await hit({ key: `device:poll:${id}`, max: 2, windowMs: POLL_SECONDS * 1000 });
     if (!limit.ok) return c.json({ error: "slow_down", interval: POLL_SECONDS, message: `Poll every ${POLL_SECONDS} seconds.` }, 429);
 
     const row = await db.query.deviceCodes.findFirst({ where: eq(schema.deviceCodes.id, id) });
@@ -135,7 +135,7 @@ export const deviceApprovalRoutes = new Hono<AppEnv>()
 
 /** Codes are short and typed by hand, so guessing at them is rate-limited hard. */
 async function pending(code: string, ip: string) {
-  const limit = hit({ key: `device:lookup:${ip}`, max: 20, windowMs: 600_000 });
+  const limit = await hit({ key: `device:lookup:${ip}`, max: 20, windowMs: 600_000 });
   if (!limit.ok) throw tooMany("Too many codes tried from here. Wait a few minutes.");
   const row = await db.query.deviceCodes.findFirst({
     where: and(eq(schema.deviceCodes.userCode, normalise(code))),

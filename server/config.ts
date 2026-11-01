@@ -49,6 +49,19 @@ export const config = {
   marketingUrl: trimSlash(str("MARKETING_URL", appUrl)),
   cookieSecure: appUrl.startsWith("https://"),
   trustProxy: bool("TRUST_PROXY", false),
+  /**
+   * Which header carries the caller's address, and how many proxies of your
+   * own stand in front of Issueit. A client can send any header it likes, so
+   * the address is counted from the right-hand end of the list: with one
+   * proxy the last entry is the one that proxy appended, which is the address
+   * it really saw. Anything further left was supplied by the caller and is
+   * worth nothing. Raise the hop count to match your own chain — Cloudflare
+   * in front of nginx in front of Issueit is two.
+   *
+   * A single-value header such as cf-connecting-ip ignores the hop count.
+   */
+  proxyHeader: str("TRUST_PROXY_HEADER", "x-forwarded-for").toLowerCase(),
+  proxyHops: Math.max(1, int("TRUST_PROXY_HOPS", 1)),
 
   databaseUrl: str("DATABASE_URL", "postgres://issueit:issueit@localhost:5432/issueit"),
   encryptionKey: str("ENCRYPTION_KEY", ""),
@@ -77,12 +90,16 @@ export const config = {
     jsonBodyBytes: 256 * 1024,
     reportsPerIpPerMinute: int("RATE_LIMIT_IP_PER_MINUTE", 10),
     reportsPerProjectPerHour: int("RATE_LIMIT_PROJECT_PER_HOUR", 1000),
+    /** The same ceiling for an organisation, so more projects isn't more room. */
+    reportsPerOrgPerHour: int("RATE_LIMIT_ORG_PER_HOUR", 5000),
     reportsPerKeyPerMinute: int("RATE_LIMIT_KEY_PER_MINUTE", 120),
     /** Management API requests one account token may make a minute. */
     tokenRequestsPerMinute: int("RATE_LIMIT_TOKEN_PER_MINUTE", 600),
     reportsPerMonth: int("PLAN_REPORTS_PER_MONTH", 0),
     storageBytes: int("PLAN_STORAGE_MB", 0) * 1024 * 1024,
     attachmentLinkDays: int("ATTACHMENT_LINK_DAYS", 30),
+    /** New organisations one address may create in a day. */
+    signupsPerIpPerDay: int("RATE_LIMIT_SIGNUPS_PER_DAY", 5),
   },
 
   smtp: {

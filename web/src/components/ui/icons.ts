@@ -8,6 +8,7 @@ export {
   AltArrowDownIcon,
   AltArrowLeftIcon,
   AltArrowRightIcon,
+  ArrowUpIcon,
   BugMinimalisticIcon,
   Chart2Icon,
   CheckCircleIcon,
@@ -93,4 +94,14 @@ export {
   ShieldWarningIcon,
   HourglassIcon,
   SquareTopDownIcon,
+  // Marketing site
+  AltArrowUpIcon,
+  CommandIcon,
+  DocumentsIcon,
+  FileTextIcon,
+  FileBracesIcon,
+  FileTerminalIcon,
+  FileCodeIcon,
+  PulseIcon,
+  KeyboardIcon,
 } from "@solar-icons/react/linear";

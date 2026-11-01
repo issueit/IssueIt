@@ -8,6 +8,7 @@ import { usePageMeta } from "../../lib/meta";
 import { useUrls } from "../../lib/urls";
 import { setTheme, useAppearance, type ThemePref } from "../../lib/theme";
 import { company } from "../site/company";
+import { hostedNav } from "../../hosted";
 import { groups, legacyAnchors, neighbours, pageBySlug } from "./nav";
 import { pages } from "./pages";
 import { SearchButton, SearchDialog, useSearchShortcut } from "./Search";
@@ -58,6 +59,7 @@ function Page({ slug }: { slug: string }) {
     // One address per page, even on an install that answers at both /docs and
     // a documentation subdomain, so the two don't compete in a search index.
     canonical: `${docsUrl}${slug === "/" ? "" : slug}`,
+    markdown: `${docsUrl}${slug === "/" ? "/index" : slug}.md`,
   });
 
   // The router keeps the previous scroll position between pages. Start at the
@@ -212,7 +214,11 @@ function Frame({ slug, children }: { slug: string; children: React.ReactNode }) 
           <nav className="dp-top-links" aria-label="Elsewhere">
             <AppLink to="/platform">Platform</AppLink>
             <AppLink to="/articles/en">Support</AppLink>
-            <AppLink to="/pricing">Pricing</AppLink>
+            {hostedNav.map((link) => (
+              <AppLink key={link.to} to={link.to}>
+                {link.label}
+              </AppLink>
+            ))}
           </nav>
           <Segmented ariaLabel="Theme" value={theme} onChange={setTheme} options={themes} />
           <AppLink to="/inbox" className="btn btn--primary btn--sm">

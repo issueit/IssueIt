@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import { db } from "../db";
 import { storage } from "../lib/storage";
 import { limitsFor } from "../billing/entitlements";
+import { pruneRateLimits } from "../lib/ratelimit";
 
 /**
  * Throwing things away on purpose.
@@ -18,10 +19,10 @@ import { limitsFor } from "../billing/entitlements";
 
 const BATCH = 500;
 
-export type RetentionResult = { attachments: number; diagnostics: number; reports: number; bytes: number };
+export type RetentionResult = { attachments: number; diagnostics: number; reports: number; spam: number; bytes: number };
 
 export async function runRetention(): Promise<RetentionResult> {
-  const result: RetentionResult = { attachments: 0, diagnostics: 0, reports: 0, bytes: 0 };
+  const result: RetentionResult = { attachments: 0, diagnostics: 0, reports: 0, spam: 0, bytes: 0 };
   const orgs = await db.query.organisations.findMany();
 
   for (const org of orgs) {
@@ -52,10 +53,27 @@ export async function runRetention(): Promise<RetentionResult> {
     }
   }
 
+  /**
+   * Reports held back as spam go after a week, whatever the plan keeps.
+   * They were never delivered and never read; keeping a spam run for a year
+   * because the plan says a year costs storage to store other people's
+   * advertising. A week is long enough for someone to notice a false
+   * positive and say so.
+   */
+  const staleSpam = sql`quarantined_at is not null and quarantined_at < now() - interval '7 days'`;
+  result.bytes += await dropAttachments(sql`report_id in (select id from reports where ${staleSpam})`, result);
+  for (;;) {
+    const gone = await db.execute<{ id: string }>(sql`
+      delete from reports where id in (select id from reports where ${staleSpam} limit ${BATCH}) returning id`);
+    result.spam += gone.length;
+    if (gone.length < BATCH) break;
+  }
+
   // Codes and already-sent email that have no further purpose.
   await db.execute(sql`delete from auth_codes where expires_at < now() - interval '7 days'`);
   await db.execute(sql`delete from device_codes where expires_at < now() - interval '7 days'`);
   await db.execute(sql`delete from notices where status in ('sent', 'skipped') and created_at < now() - interval '30 days'`);
+  await pruneRateLimits().catch((err) => console.error("[retention] couldn't prune the rate limit counters", err));
   return result;
 }
 

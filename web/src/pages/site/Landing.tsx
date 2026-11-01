@@ -2,16 +2,26 @@ import { Fragment, useEffect, useLayoutEffect, useRef, useState, type CSSPropert
 import { Link } from "react-router";
 import { useMe } from "../../lib/session";
 import { DocsLink } from "../../lib/docs-link";
-import { AltArrowRightIcon, CameraMinimalisticIcon, KeyMinimalistic2Icon, RefreshIcon, ShieldCheckIcon, SquareArrowRightUpIcon, UsersGroupRoundedIcon } from "../../components/ui/icons";
-import { HeroDemo } from "./HeroDemo";
-import { Intake } from "./Intake";
-import { Routing } from "./Routing";
-import { Reliability } from "./Reliability";
+import { BrandIcon } from "../../components/ui/BrandIcon";
+import { AltArrowRightIcon, BugMinimalisticIcon, CodeIcon, PulseIcon, Routing2Icon, WidgetIcon } from "../../components/ui/icons";
 import { AsciiField } from "./AsciiField";
 import { Footer, Nav } from "./chrome";
-import { IntegrationWall } from "./IntegrationWall";
-import { arriveAtHash, useInView, useReducedMotion, useReveal, useScrollProgress } from "./motion";
+import { Reliability } from "./Reliability";
+import { Pipeline } from "./home/Pipeline";
+import { ApiStream, ContextReplay, DeliveryFeed, DevCard, RoutingFlow, WidgetFlow } from "./home/DevCards";
+import { Keys } from "./home/Keys";
+import { arriveAtHash, useInView, useReducedMotion, useReveal } from "./motion";
 import "./site.css";
+import "./home/home.css";
+
+/**
+ * The landing page. The hero shows the one thing Issueit does: a bug goes
+ * in from your product and comes out in your team's own tools, with
+ * Issueit as the pipe between them rather than another place to check.
+ * Below it each part of the job (collecting, delivering, keeping, hosting)
+ * gets a picture that moves instead of a paragraph that explains. The page as it was before
+ * this design is kept in ./legacy and served at /classic.
+ */
 
 /* ------------------------------------------------------------------ pieces */
 
@@ -74,198 +84,137 @@ function Rotator() {
 }
 
 function Hero({ signedIn }: { signedIn: boolean }) {
-  const ref = useRef<HTMLElement>(null);
   const tilt = useRef<HTMLDivElement>(null);
-  const glow = useRef<HTMLSpanElement>(null);
 
-  // Tilt flattens over the first stretch of scroll; spotlight follows the pointer.
+  // The product leans back at first and straightens as the page scrolls.
   useEffect(() => {
-    const el = ref.current;
     const t = tilt.current;
-    if (!el || !t) return;
+    if (!t) return;
     let frame = 0;
     const onScroll = () => {
       if (frame) return;
       frame = requestAnimationFrame(() => {
         frame = 0;
-        t.style.setProperty("--t", Math.min(1, window.scrollY / 420).toFixed(3));
+        t.style.setProperty("--t", Math.min(1, window.scrollY / 520).toFixed(3));
       });
-    };
-    // Moves the glow itself, so the browser shifts a layer rather than repainting the hero.
-    const onMove = (e: PointerEvent) => {
-      const g = glow.current;
-      if (!g) return;
-      const r = el.getBoundingClientRect();
-      g.style.transform = `translate3d(${(e.clientX - r.left - r.width * 0.5).toFixed(0)}px, ${(e.clientY - r.top - r.height * 0.18).toFixed(0)}px, 0)`;
     };
     onScroll();
     window.addEventListener("scroll", onScroll, { passive: true });
-    el.addEventListener("pointermove", onMove);
     return () => {
       cancelAnimationFrame(frame);
       window.removeEventListener("scroll", onScroll);
-      el.removeEventListener("pointermove", onMove);
     };
   }, []);
 
   return (
-    <section ref={ref} id="top" className="hero">
-      <div className="hero-glow" aria-hidden>
-        <span ref={glow} />
-      </div>
-      <div className="site-wrap hero-copy">
-        <a href="#reliability" className="hero-pill" style={{ ["--d" as string]: "0ms" } as CSSProperties}>
-          <span className="live-dot" />
-          Stored first, delivered with retries
-          <AltArrowRightIcon size={12} />
-        </a>
-        <h1 className="display">
+    <section id="top" className="hx">
+      <div className="site-wrap hx-copy">
+        <h1 className="hx-title">
           <span className="display-line">
-            <Rise delay={80}>Capture a bug.</Rise>
+            <Rise delay={60}>Capture a bug.</Rise>
           </span>
           <span className="display-line">
-            <Rise delay={260}>Deliver it to</Rise>
+            <Rise delay={220}>Deliver it to</Rise>
             <br className="br-sm" />
-            <span className="rise" style={{ ["--d" as string]: "430ms" } as CSSProperties}>
+            <span className="rise" style={{ ["--d" as string]: "390ms" } as CSSProperties}>
               <span>
                 <Rotator />.
               </span>
             </span>
           </span>
-          <span className="display-line display-line--quiet">
-            <Rise delay={520}>Get out of the way.</Rise>
-          </span>
         </h1>
-        <p className="hero-lead fade-up" style={{ ["--d" as string]: "760ms" } as CSSProperties}>
-          Issueit collects bug reports from a widget, a hosted form or the REST API, adds the context a developer needs, and files them where your team already works. It isn't another tracker to
-          check.
-        </p>
-        <div className="hero-ctas fade-up" style={{ ["--d" as string]: "880ms" } as CSSProperties}>
-          {signedIn ? (
-            <Link to="/inbox" className="btn btn--primary site-btn site-btn--lg">
-              Open inbox
-              <AltArrowRightIcon size={14} />
-            </Link>
-          ) : (
-            <Link to="/signup" className="btn btn--primary site-btn site-btn--lg">
-              Start collecting reports
-              <AltArrowRightIcon size={14} />
-            </Link>
-          )}
+        <div className="hx-row fade-up" style={{ ["--d" as string]: "620ms" } as CSSProperties}>
+          <p className="hx-lead">
+            Issueit isn't a bug tracker. It takes the report from your users, adds the console errors and clicks that came before it, and hands it to the tool your team already
+            uses. One script tag, 135 destinations.
+          </p>
+          <Link to="/mcp" className="hx-news">
+            <span className="hx-news-dot" />
+            <b>Agents can fix them now</b>
+            <span>Issueit MCP</span>
+            <AltArrowRightIcon size={12} />
+          </Link>
+        </div>
+        <div className="hero-ctas hx-ctas fade-up" style={{ ["--d" as string]: "740ms" } as CSSProperties}>
+          <Link to={signedIn ? "/inbox" : "/signup"} className="btn btn--primary site-btn site-btn--lg">
+            {signedIn ? "Open inbox" : "Start collecting reports"}
+            <AltArrowRightIcon size={14} />
+          </Link>
           <DocsLink className="btn site-btn site-btn--lg site-btn--ghost">Read the docs</DocsLink>
         </div>
       </div>
-      <div className="hero-stage fade-up" style={{ ["--d" as string]: "1000ms" } as CSSProperties}>
-        <div ref={tilt} className="hero-tilt">
-          <HeroDemo />
+      <div className="hx-stage fade-up" style={{ ["--d" as string]: "880ms" } as CSSProperties}>
+        <div ref={tilt} className="hx-tilt">
+          <Pipeline />
         </div>
       </div>
     </section>
   );
 }
 
-function SectionHead({ eyebrow, title, lead }: { eyebrow: string; title: ReactNode; lead: ReactNode }) {
+function Head({ eyebrow, title, lead }: { eyebrow: string; title: ReactNode; lead: ReactNode }) {
   return (
-    <div className="sec-head">
+    <div className="hx-head">
       <p className="eyebrow" data-rv>
         {eyebrow}
       </p>
-      <h2 className="h2" data-rv style={{ ["--d" as string]: "60ms" } as CSSProperties}>
+      <h2 className="hx-h2" data-rv style={{ ["--d" as string]: "60ms" } as CSSProperties}>
         {title}
       </h2>
-      <p className="lead" data-rv style={{ ["--d" as string]: "120ms" } as CSSProperties}>
+      <p className="hx-sub" data-rv style={{ ["--d" as string]: "120ms" } as CSSProperties}>
         {lead}
       </p>
     </div>
   );
 }
 
-const MANIFESTO =
-  "Most bug tools want to become the place your team lives. Issueit doesn't. It takes the report, adds the context a developer needs, hands it to the tools you already use, and then gets out of the way.";
-
-/** Words brighten as the paragraph scrolls through the middle of the screen. */
-function Manifesto() {
-  const ref = useRef<HTMLElement>(null);
-  useScrollProgress(ref);
-  const words = MANIFESTO.split(" ");
-  return (
-    <section ref={ref} className="manifesto">
-      <div className="site-wrap">
-        <p className="manifesto-text" aria-label={MANIFESTO}>
-          {words.map((w, i) => (
-            <span
-              key={i}
-              aria-hidden
-              style={
-                {
-                  ["--i" as string]: (i / words.length).toFixed(4),
-                } as CSSProperties
-              }
-            >
-              {w}{" "}
-            </span>
-          ))}
-        </p>
-      </div>
-    </section>
-  );
-}
-
-const DETAILS = [
-  {
-    icon: CameraMinimalisticIcon,
-    title: "Context, captured",
-    text: "Page, browser, viewport, screen and language arrive with every report, along with screenshots and files.",
-    sample: "Safari 18 · macOS · 1440×900 · en-GB",
-  },
-  {
-    icon: RefreshIcon,
-    title: "A live inbox",
-    text: "New reports and delivery results appear as they happen, over server-sent events. Nothing polls.",
-    sample: "● Listening · 3 delivered",
-  },
-  {
-    icon: KeyMinimalistic2Icon,
-    title: "Keys that know their place",
-    text: "The project id is public. Secret keys are for servers, and Issueit refuses them from a browser.",
-    sample: "sk_live_••••••••••••3f9a",
-  },
-  {
-    icon: ShieldCheckIcon,
-    title: "Signed webhooks",
-    text: "Every webhook carries a timestamped HMAC signature, so you can trust what arrives and reject replays.",
-    sample: "Issueit-Signature: t=1793…,v1=9c1f…",
-  },
-  {
-    icon: SquareArrowRightUpIcon,
-    title: "Built to take abuse",
-    text: "Rate limits per address, project and key. Attachments are checked by their bytes, not their names.",
-    sample: "429 · Try again in 42 seconds",
-  },
-  {
-    icon: UsersGroupRoundedIcon,
-    title: "For the whole team",
-    text: "Organisations, invitations and roles, with each project's usage and storage in one place.",
-    sample: "4 members · 3 projects · 1,204 reports",
-  },
+/** A row of the tools Issueit delivers to, drifting past. */
+const BRANDS = [
+  "github",
+  "linear",
+  "slack",
+  "jira",
+  "discord",
+  "gitlab",
+  "asana",
+  "notion",
+  "pagerduty",
+  "trello",
+  "clickup",
+  "zendesk",
+  "intercom",
+  "telegram",
+  "mattermost",
+  "datadog",
+  "hubspot",
+  "airtable",
+  "googlesheets",
+  "bitbucket",
+  "basecamp",
+  "matrix",
+  "grafana",
+  "n8n",
 ];
 
-function Details() {
-  const onMove = (e: React.PointerEvent<HTMLElement>) => {
-    const r = e.currentTarget.getBoundingClientRect();
-    e.currentTarget.style.setProperty("--mx", `${e.clientX - r.left}px`);
-    e.currentTarget.style.setProperty("--my", `${e.clientY - r.top}px`);
-  };
+function Brands() {
+  const ref = useRef<HTMLDivElement>(null);
+  const live = useInView(ref, { margin: "0px" });
   return (
-    <div className="detail-grid">
-      {DETAILS.map((d, i) => (
-        <article key={d.title} className="detail" data-rv style={{ ["--d" as string]: `${(i % 3) * 80}ms` } as CSSProperties} onPointerMove={onMove}>
-          <d.icon size={18} className="detail-icon" />
-          <h3>{d.title}</h3>
-          <p>{d.text}</p>
-          <span className="detail-sample mono">{d.sample}</span>
-        </article>
-      ))}
+    <div ref={ref} className="hx-brands" data-live={live || undefined} data-rv>
+      <div className="hx-brands-track" aria-hidden>
+        {[0, 1].map((k) => (
+          <div key={k} className="hx-brands-set">
+            {BRANDS.map((b) => (
+              <span key={b} className="hx-brand">
+                <BrandIcon provider={b} size={22} />
+              </span>
+            ))}
+          </div>
+        ))}
+      </div>
+      <p className="hx-brands-note">
+        <b>135 destinations</b> and your own webhook, connected with a sign-in, a token or a URL.
+      </p>
     </div>
   );
 }
@@ -316,15 +265,7 @@ function Terminal() {
 
   const current = TERMINAL[line];
   return (
-    <div ref={ref} className="term" data-rv>
-      <div className="intake-file">
-        <span className="demo-lights" aria-hidden>
-          <i />
-          <i />
-          <i />
-        </span>
-        <span className="mono">~/issueit</span>
-      </div>
+    <div ref={ref} className="hx-term">
       <pre className="mono" aria-label={TERMINAL_TEXT}>
         {TERMINAL.slice(0, line).map(([kind, text], i) => (
           <div key={i} className={`term-line term-line--${kind}`} aria-hidden>
@@ -397,83 +338,108 @@ export default function Landing() {
   }, []);
 
   return (
-    <div ref={root} className="site">
+    <div ref={root} className="site site--hx">
       <AsciiField />
       <Nav />
       <main>
         <Hero signedIn={signedIn} />
 
-        <section className="sec" id="intake">
+        <section className="hx-sec" id="intake">
           <div className="site-wrap">
-            <SectionHead
+            <Head
               eyebrow="Collect"
               title={
                 <>
                   Three ways in.
                   <br />
-                  One shape out.
+                  <span className="hx-quiet">One shape out.</span>
                 </>
               }
-              lead="Drop in the widget, share a hosted form or post from your own code. Reporters never need an account, and every report arrives in the same shape."
+              lead="Drop in the widget, share a hosted form or post from your own code. Reporters never need an account, and every report arrives with what happened before it."
             />
-            <Intake />
+            <div className="dx-grid">
+              <DevCard visual={<WidgetFlow />} icon={WidgetIcon} title="One script tag" docs="/collect/widget">
+                A button in the corner and a short form. The page, the browser and a screenshot come along without anyone typing them.
+              </DevCard>
+              <DevCard visual={<ApiStream />} icon={CodeIcon} title="One request, no account" docs="/collect/intake-api" index={1}>
+                POST a report from a server, a mobile app or a failing test. Press send above; that's the whole integration.
+              </DevCard>
+              <DevCard visual={<ContextReplay />} icon={BugMinimalisticIcon} title="The moments before it broke" docs="/collect/diagnostics" wide>
+                Console errors, failed requests and the clicks that led up to the report, mapped to your own source and scrubbed of anything secret.
+              </DevCard>
+            </div>
           </div>
         </section>
 
-        <section className="sec" id="destinations">
+        <section className="hx-sec" id="destinations">
           <div className="site-wrap">
-            <SectionHead
+            <Head
               eyebrow="Deliver"
               title={
                 <>
                   Lands where your team
                   <br />
-                  already works.
+                  <span className="hx-quiet">already works.</span>
                 </>
               }
-              lead="More than 130 destinations, connected with a sign-in, a token or a webhook URL. Route by priority, source or environment, so a critical bug reaches the right people first."
+              lead="Route by priority, source or environment, so a critical bug reaches the people on call and a typo waits for Monday."
             />
-            <Routing />
-            <IntegrationWall />
+            <div className="dx-grid">
+              <DevCard visual={<RoutingFlow />} icon={Routing2Icon} title="Rules, not inboxes" docs="/deliver/routing">
+                Each destination takes the reports its rules match. One report can open an issue, post to chat and page somebody at once.
+              </DevCard>
+              <DevCard visual={<DeliveryFeed />} icon={PulseIcon} title="Every delivery, on the record" docs="/deliver/failures" index={1}>
+                What went where, what it said back and what is still waiting. A tool that's down is a delay, not a lost bug.
+              </DevCard>
+            </div>
+            <Brands />
           </div>
         </section>
 
         <Reliability />
 
-        <Manifesto />
-
-        <section className="sec">
-          <div className="site-wrap">
-            <SectionHead eyebrow="Details" title="The small things, done properly." lead="The parts nobody demos, and everybody notices when they're missing." />
-            <Details />
+        <section className="hx-sec hx-keys">
+          <div className="site-wrap hx-keys-wrap">
+            <div className="hx-keys-copy">
+              <h2 data-rv>
+                It isn't about another tool.
+                <span> It's about never losing the bug somebody took the time to report.</span>
+              </h2>
+              <Link to={signedIn ? "/inbox" : "/signup"} className="btn btn--primary site-btn hx-keys-cta" data-rv style={{ ["--d" as string]: "100ms" } as CSSProperties}>
+                {signedIn ? "Open inbox" : "Get started"}
+                <AltArrowRightIcon size={13} />
+              </Link>
+              <p className="hx-keys-hint" data-rv style={{ ["--d" as string]: "160ms" } as CSSProperties}>
+                Nothing new for your team to check.
+              </p>
+            </div>
+            <Keys />
           </div>
         </section>
 
-        <section className="sec" id="self-host">
-          <div className="site-wrap selfhost">
-            <div className="selfhost-copy">
-              <p className="eyebrow" data-rv>
-                Self-host
-              </p>
-              <h2 className="h2" data-rv>
-                Runs on your
-                <br />
-                own server.
-              </h2>
-              <p className="lead" data-rv>
-                One container and PostgreSQL. Migrations run on start, and reports, files and credentials stay on hardware you control.
-              </p>
-              <ul className="selfhost-list" data-rv>
-                <li>Integration credentials encrypted at rest</li>
-                <li>Split hosting for the dashboard, intake and widget</li>
-                <li>Token connections when you'd rather skip OAuth</li>
-              </ul>
-              <Link to="/docs#self-hosting" className="text-link" data-rv>
-                Self-hosting guide
-                <AltArrowRightIcon size={13} />
-              </Link>
+        <section className="hx-sec" id="self-host">
+          <div className="site-wrap">
+            <div className="hx-host" data-rv>
+              <div className="hx-host-copy">
+                <p className="eyebrow">Self-host</p>
+                <h2 className="hx-h2">
+                  Runs on your
+                  <br />
+                  <span className="hx-quiet">own server.</span>
+                </h2>
+                <p className="hx-sub">One container and PostgreSQL. Migrations run on start, and reports, files and credentials stay on hardware you control.</p>
+                <ul className="hx-host-list">
+                  <li>Integration credentials encrypted at rest</li>
+                  <li>Split hosting for the dashboard, intake and widget</li>
+                  <li>Token connections when you'd rather skip OAuth</li>
+                </ul>
+                <DocsLink to="/self-host/install" className="text-link">
+                  Self-hosting guide
+                  <AltArrowRightIcon size={13} />
+                </DocsLink>
+              </div>
+              <Terminal />
             </div>
-            <Terminal />
           </div>
         </section>
 

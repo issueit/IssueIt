@@ -179,13 +179,22 @@ async function checkGrant(role: "owner" | "member", orgId: string, input: z.infe
     const above = input.scopes.filter((s) => ownerOnlyScopes.includes(s));
     if (above.length) throw forbidden(`Only organisation owners can grant ${above.join(" and ")}.`);
   }
+  /**
+   * Only a missing list means "every project in the organisation". A list that
+   * came through empty is a fence that permits nothing, which is what both
+   * readers of this column already assume: a caller that worked out which
+   * projects to allow and found none must not be handed all of them.
+   */
   let projects: string[] | null = null;
-  if (input.projects?.length) {
-    const rows = await db.select({ id: schema.projects.id }).from(schema.projects).where(and(eq(schema.projects.orgId, orgId), inArray(schema.projects.id, input.projects)));
-    const found = new Set(rows.map((r) => r.id));
-    const missing = input.projects.filter((p) => !found.has(p));
-    if (missing.length) throw notFound(`Project ${missing[0]}`);
-    projects = [...found];
+  if (input.projects) {
+    projects = [];
+    if (input.projects.length) {
+      const rows = await db.select({ id: schema.projects.id }).from(schema.projects).where(and(eq(schema.projects.orgId, orgId), inArray(schema.projects.id, input.projects)));
+      const found = new Set(rows.map((r) => r.id));
+      const missing = input.projects.filter((p) => !found.has(p));
+      if (missing.length) throw notFound(`Project ${missing[0]}`);
+      projects = [...found];
+    }
   }
   const expiresAt = input.expiresInDays ? new Date(Date.now() + input.expiresInDays * 86400_000) : null;
   return { scopes: input.scopes, projects, expiresAt };

@@ -8,10 +8,81 @@
   max-width: 1480px;
   width: 100%;
 }
-.dash-caption {
+/* The line above the grid: what you are looking at, how fresh it is, and the
+   one control for whether it keeps up with new reports by itself. */
+.dash-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: -2px 0 -2px 2px;
   font-size: var(--fs-xs);
   color: var(--text-3);
-  margin: -2px 0 -2px 2px;
+}
+.dash-bar__scope {
+  color: var(--text-2);
+  font-weight: var(--fw-medium);
+}
+.dash-bar__sep {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--text-4);
+}
+.dash-bar__link {
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.dash-bar__link:hover {
+  color: var(--text);
+}
+.dash-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 20px;
+  padding: 0 8px 0 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: transparent;
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-medium);
+  color: var(--text-3);
+  transition:
+    color var(--t-hover) var(--ease),
+    border-color var(--t-hover) var(--ease);
+}
+.dash-live:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+.dash-live__dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--text-4);
+}
+.dash-live[data-on] {
+  color: var(--success);
+  border-color: color-mix(in srgb, var(--success) 35%, transparent);
+}
+.dash-live[data-on] .dash-live__dot {
+  background: var(--success);
+  animation: live-pulse 2.4s var(--ease) infinite;
+}
+@keyframes live-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dash-live[data-on] .dash-live__dot {
+    animation: none;
+  }
 }
 .dash-grid {
   display: grid;
@@ -56,6 +127,26 @@
     grid-column: span 8;
   }
 }
+/* Three ways to draw a card: outlined, plain on the page, or raised off it. */
+.dash-grid[data-style="plain"] .dash-card {
+  padding: 2px 2px 10px;
+  border-color: transparent;
+  background: transparent;
+}
+.dash-grid[data-style="plain"] .dash-card__head {
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--divider);
+}
+.dash-grid[data-style="raised"] .dash-card {
+  border-color: var(--border);
+  box-shadow: var(--shadow-sm);
+}
+.dash-grid:not([data-editing]) .dash-card:hover {
+  border-color: var(--border);
+}
+.dash-grid[data-style="plain"]:not([data-editing]) .dash-card:hover {
+  border-color: transparent;
+}
 .dash-grid[data-editing] .dash-card {
   border-style: dashed;
   border-color: var(--border-strong);
@@ -80,7 +171,7 @@
 }
 .dash-card__title {
   font-size: var(--fs-sm);
-  font-weight: 600;
+  font-weight: var(--fw-strong);
   color: var(--text);
   white-space: nowrap;
   overflow: hidden;
@@ -144,7 +235,7 @@
   align-items: baseline;
   gap: 8px;
   font-size: 22px;
-  font-weight: 600;
+  font-weight: var(--fw-strong);
   letter-spacing: -0.01em;
   line-height: 1.25;
   margin-top: 2px;
@@ -157,7 +248,7 @@
 }
 .kpi__delta {
   font-size: var(--fs-xs);
-  font-weight: 500;
+  font-weight: var(--fw-medium);
   color: var(--text-2);
 }
 .kpi__hint {
@@ -185,7 +276,7 @@
   top: 0;
   background: var(--surface);
   text-align: left;
-  font-weight: 500;
+  font-weight: var(--fw-medium);
   font-size: var(--fs-xs);
   color: var(--text-3);
   padding: 4px;
@@ -234,6 +325,9 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+.rank-list--full li {
+  height: 28px;
 }
 .rank-list li {
   position: relative;
@@ -370,7 +464,7 @@
 }
 .sheet__title {
   font-size: var(--fs-lg);
-  font-weight: 600;
+  font-weight: var(--fw-strong);
   min-width: 0;
 }
 .sheet__sub {
@@ -391,7 +485,7 @@
   border: none;
   background: transparent;
   font-size: var(--fs-sm);
-  font-weight: 500;
+  font-weight: var(--fw-medium);
   color: var(--text-3);
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;
@@ -516,7 +610,7 @@
 }
 .provider-card__name {
   font-size: var(--fs-sm);
-  font-weight: 550;
+  font-weight: var(--fw-medium);
   display: flex;
   align-items: center;
   gap: 6px;
@@ -542,7 +636,7 @@
   border: 1px solid var(--border);
   background: transparent;
   font-size: var(--fs-xs);
-  font-weight: 500;
+  font-weight: var(--fw-medium);
   color: var(--text-2);
   white-space: nowrap;
   transition:
@@ -577,7 +671,7 @@
 }
 .stat-strip__value {
   font-size: var(--fs-xl);
-  font-weight: 600;
+  font-weight: var(--fw-strong);
   margin-top: 1px;
 }
 
@@ -589,7 +683,7 @@
 }
 .dtable th {
   text-align: left;
-  font-weight: 500;
+  font-weight: var(--fw-medium);
   font-size: var(--fs-xs);
   color: var(--text-3);
   padding: 8px 10px;
@@ -670,7 +764,7 @@
   border-radius: var(--r-sm);
   background: transparent;
   font-size: var(--fs-xs);
-  font-weight: 500;
+  font-weight: var(--fw-medium);
   color: var(--text-2);
   white-space: nowrap;
 }
@@ -850,4 +944,47 @@ button.diag__line:not(:disabled):hover {
   width: 52px;
   text-align: right;
   color: var(--text-3);
+}
+
+/* ------------------------------------------------------------ chart tooltip */
+/* Drawn as an element rather than into the canvas, so the text is as crisp and
+   as themed as the rest of the app at any interface scale. */
+.chart-tip {
+  position: fixed;
+  z-index: 70;
+  pointer-events: none;
+  opacity: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 260px;
+  padding: 7px 9px 8px;
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-pop);
+  transition: opacity var(--t-hover) var(--ease);
+}
+.chart-tip[data-show] {
+  opacity: 1;
+}
+.chart-tip__title {
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-strong);
+  color: var(--text);
+  margin-bottom: 1px;
+}
+.chart-tip__row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.chart-tip__dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
 }

@@ -30,15 +30,21 @@ function Widget() {
       <Table
         head={["Attached", "Read from"]}
         rows={[
-          [<C>page_url</C>, <C>location.href</C>],
+          [<C>page_url</C>, <><C>location.href</C>, with anything secret taken out of it</>],
           [<C>browser</C>, <>Parsed from <C>navigator.userAgent</C></>],
           [<C>viewport</C>, <C>innerWidth × innerHeight</C>],
           [<C>screen</C>, <C>screen.width × screen.height</C>],
           [<C>language</C>, <C>navigator.language</C>],
           [<C>timezone</C>, <C>Intl.DateTimeFormat().resolvedOptions().timeZone</C>],
-          [<C>referrer</C>, <><C>document.referrer</C>, when there is one</>],
+          [<C>referrer</C>, <><C>document.referrer</C>, when there is one, cleaned the same way</>],
         ]}
       />
+      <p>
+        An address can carry the one thing nobody wants stored. A password reset puts its token in the query string, single sign-on hands one back in the fragment, and an invitation link has an email
+        address in it. So the path and the names of the query stay — a checkout that only fails for one order id has to be findable again — while the value of any parameter whose name gives it away is
+        replaced with <C>[redacted]</C>, in the fragment as well as the query, and so is a long opaque path segment that isn't an id. The server does the same again on the way in, with{" "}
+        your project's own <D to="/collect/diagnostics">redaction rules</D> on top, because not every report arrives through the widget.
+      </p>
       <p>
         It also keeps the last few dozen console errors, network requests and steps in the visitor's browser and sends them with the report. That is the part that turns "it doesn't work" into
         something fixable, and it has its own page: <D to="/collect/diagnostics">diagnostics capture</D>.
@@ -313,7 +319,9 @@ function Diagnostics() {
       <Steps>
         <Step title="Per project">
           <p>
-            The project's <strong>Widget</strong> tab has one switch per list: console, network and steps. Off means the widget doesn't record it and the server wouldn't store it if it arrived.
+            The project's <strong>Widget</strong> tab has one switch per list: console, network and steps. Recording has to start before the settings have arrived, or the moments before someone opens
+            the form are already gone — so a switch that's off takes effect the instant the answer lands: whatever was collected is dropped, nothing more is recorded, and the page gets its own{" "}
+            <C>fetch</C>, <C>console</C> and history back. The server wouldn't store it if it arrived anyway. To record nothing at all, not even for that first moment, use <C>data-capture="off"</C>.
           </p>
         </Step>
         <Step title="Per page">
@@ -864,6 +872,107 @@ open();   // opens the widget's form`}
   );
 }
 
+/**
+ * Spam and abuse. Written as one page because the parts only make sense
+ * together: a project id is public, so intake has to assume strangers.
+ */
+function Spam() {
+  return (
+    <>
+      <p>
+        A project id is printed in the page source of every site that uses the widget. Anyone who views source can post to your intake endpoint, and a public form attracts link spam the way every
+        public form has since forms existed. Issueit assumes that and stays useful anyway.
+      </p>
+      <p>
+        The rule behind all of it: <strong>nothing is refused on a guess, and nothing is thrown away on a guess</strong>. A report that looks like spam is stored and held back from delivery, because
+        delivery is the step that can't be undone — a Jira ticket exists, a channel has been pinged, a reporter has had an email. A false positive costs one click. A lost bug report from a real user
+        costs a customer.
+      </p>
+
+      <H2>What happens to a public submission</H2>
+      <Table
+        head={["Step", "What it does"]}
+        rows={[
+          ["Rate limits", <>Ten reports a minute per visitor per project, a thousand an hour per project, five thousand an hour per organisation. Over any of them answers <C>429</C> with <C>Retry-After</C>.</>],
+          ["Allowed sites", <>If the project names its sites, a browser on any other one is turned away. See <D to="/collect/widget">the widget</D>.</>],
+          ["Blocked reporters", "Anyone the project has blocked is answered as though the report had been filed, and nothing is stored."],
+          ["A honeypot", "A field a person never sees and never fills in. Anything that completes it gets the same pretend acceptance."],
+          ["Spam scoring", "What's left is scored. At or above the project's threshold it's stored and held back instead of delivered."],
+        ]}
+      />
+      <Callout kind="note" title="Only public submissions are scored">
+        A report sent with a secret key or a <D to="/collect/browser-tokens">browser token</D> is never held back. Your server or your signed-in app has already decided who it believes, and
+        second-guessing it would hold back reports you filed deliberately.
+      </Callout>
+
+      <H2>What a held-back report loses</H2>
+      <Facts
+        rows={[
+          ["Delivery", "No destination hears about it. Nothing is created in your tracker."],
+          ["Email", "The reporter gets no receipt, and your team gets no arrival alert."],
+          ["Your allowance", "It doesn't count against the monthly report allowance. Nobody should pay for a spam run."],
+          ["The inbox", <>It isn't in any other view. It's in <strong>Held as spam</strong>, with the reasons it was held.</>],
+          ["A week", "Then it's deleted, with its attachments, whatever the plan's retention says."],
+        ]}
+      />
+      <p>
+        Open one and choose <strong>Not spam</strong> and it goes out to your destinations and emails the reporter exactly as if it had just arrived, and counts against the month from then on.
+        Choose <strong>Block reporter</strong> and nothing more from them is accepted for that project.
+      </p>
+
+      <H2>What the score is made of</H2>
+      <p>No single one of these is enough on its own. A real report can say “the casino page 404s”, so one weak signal never holds anything back.</p>
+      <Table
+        head={["Signal", "Why it counts"]}
+        rows={[
+          ["Several links, or a link in the title", "One link is how someone says which page they mean. Three, or any in the title, is a link farm."],
+          ["Markup links", <><C>[url=…]</C> and <C>&lt;a href&gt;</C> in a plain-text field is a forum spammer's muscle memory.</>],
+          ["Advertising language", "Words that belong to a trade being sold rather than to software that's broken."],
+          ["Your own words", "Phrases you add in the project's settings, weighted higher than the built-in ones."],
+          ["Volume from one reporter", "Dozens of reports in an hour from one address is a loop or a run."],
+          ["The same text again and again", "If it were the same bug on the same page, duplicate grouping would have caught it."],
+          ["A throwaway email address", "Mailinator and friends."],
+          ["A long message with no page and nothing captured", "A sales pitch is addressed to a company. A bug report comes from a page."],
+        ]}
+      />
+
+      <H2>Settings</H2>
+      <p>
+        Per project, under <strong>Settings › Spam</strong>. On every plan: not being spammed isn't a feature anyone should have to buy.
+      </p>
+      <Facts
+        rows={[
+          ["Hold likely spam back", "On by default. Turning it off delivers every public report, however it scores."],
+          ["Links are normal here", "For a project whose reporters paste links as a matter of course. Stops links counting at all."],
+          ["Blocked reporters", "Addresses, email domains, and reporters blocked from one of their reports."],
+          ["Your own words", <>Phrases that mean spam for your product. Set them through <C>PATCH /projects/:id</C> with <C>protection.spam.keywords</C>.</>],
+        ]}
+      />
+      <Callout kind="tip" title="An address is never stored">
+        Issueit keeps a keyed hash of a reporter's IP address, never the address. That's why blocking one from a report shows no address to read: the hash is all there is. Typing an address into the
+        block list hashes it the same way.
+      </Callout>
+
+      <H2>The quiet refusals</H2>
+      <p>
+        A blocked reporter and a filled honeypot both get <C>201</C> and a report id that belongs to nothing. A spammer who can tell refusal from acceptance tries again differently; one who can't
+        carries on posting into nothing. This is the one place Issueit answers something other than the truth, and it's on purpose.
+      </p>
+
+      <H2>From the API</H2>
+      <Table
+        head={["Call", "What it does"]}
+        rows={[
+          [<C>GET /reports?spam=only</C>, <>The held-back reports. They're left out of every other listing, and <C>held</C> in any list response counts them.</>],
+          [<C>POST /reports/:id/not-spam</C>, "Releases one: delivered and emailed as though it had just arrived."],
+          [<C>POST /reports/:id/block</C>, "Blocks the reporter for that project, by address hash and optionally by email."],
+          [<>Intake with <C>?dry_run=1</C></>, <>Reports the score and whether it would be held, without storing anything. See <D to="/collect/idempotency">dry runs</D>.</>],
+        ]}
+      />
+    </>
+  );
+}
+
 export const collectPages: Record<string, ComponentType> = {
   "/collect/widget": Widget,
   "/collect/widget-api": WidgetApi,
@@ -872,5 +981,6 @@ export const collectPages: Record<string, ComponentType> = {
   "/collect/intake-api": IntakeApi,
   "/collect/browser-tokens": BrowserTokens,
   "/collect/idempotency": Idempotency,
+  "/collect/spam": Spam,
   "/collect/sdks": Sdks,
 };

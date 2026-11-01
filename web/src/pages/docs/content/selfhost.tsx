@@ -78,6 +78,11 @@ SMTP_FROM=Issueit <no-reply@example.com>`} />
         If anything sits in front of Issueit — nginx, Caddy, Traefik, a Cloudflare tunnel — set <C>TRUST_PROXY=true</C> so rate limits and the dashboard's map see the visitor's address rather than
         your proxy's. Without it every visitor shares one per-IP limit, which is the kind of thing you find out about during an incident.
       </p>
+      <p>
+        Also set <C>TRUST_PROXY_HOPS</C> to the number of proxies you actually run — one for the nginx below, two for Cloudflare in front of nginx. Anyone can send an{" "}
+        <C>X-Forwarded-For</C> header of their own, and your proxy appends to it rather than replacing it, so the forged entries end up on the left and the real address on the right. Issueit counts
+        that many entries back from the right; getting the number wrong in your favour is what turns a per-visitor limit into no limit at all.
+      </p>
       <Code
         title="nginx"
         code={`location / {
@@ -320,7 +325,13 @@ function Editions() {
       <Table
         head={["", "Self-hosted", "Hosted"]}
         rows={[
-          [<C>EDITION</C>, <C>selfhost</C> + " (the default)", <C>hosted</C>],
+          [
+            <C>EDITION</C>,
+            <>
+              <C>selfhost</C> (the default)
+            </>,
+            <C>hosted</C>,
+          ],
           ["Features", "All of them, on", "All of them, by plan"],
           ["Limits", <>Your own, from <D to="/reference/environment">environment variables</D></>, "The plan's, capped by the operator's"],
           ["Plans and billing", "Present in the code and inert", "Trials, Stripe checkout, the customer portal"],

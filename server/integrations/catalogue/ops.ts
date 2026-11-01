@@ -2,7 +2,7 @@ import { eventEnvelope } from "../../delivery/payload";
 import { facts, plainBody, priorityLabel, titleFor, truncate } from "../format";
 import { bearer, IntegrationError } from "../http";
 import type { Provider, ReportPayload } from "../types";
-import { baseUrl, basic, call, define, hookUrl, optional, secret, seg, text, type SendContext, type Spec } from "./define";
+import { baseUrl, basic, call, define, hookUrl, hostName, optional, secret, seg, text, type SendContext, type Spec } from "./define";
 import { awsRequest, azureSas, googleToken, parseServiceAccount } from "./signing";
 
 /**
@@ -366,13 +366,13 @@ const specs: Spec[] = [
     summary: "Posts each new report to Datadog as an event, tagged with its priority and project.",
     fields: [secret("key", "API key"), optional(text("site", "Site", "e.g. datadoghq.eu or us5.datadoghq.com.", "datadoghq.com"))],
     async check(creds) {
-      const { data } = await call("Datadog", `https://api.${creds.site || "datadoghq.com"}/api/v1/validate`, { headers: { "dd-api-key": creds.key } });
+      const { data } = await call("Datadog", `https://api.${hostName(creds.site, "datadoghq.com", "Site")}/api/v1/validate`, { headers: { "dd-api-key": creds.key } });
       if (!data.valid) throw new IntegrationError("Datadog says that API key isn't valid.", { retryable: false });
       return { label: `Datadog · ${creds.site || "datadoghq.com"}` };
     },
     async send({ report, creds, isTest }) {
       const alertType = { critical: "error", high: "error", medium: "warning", low: "info" }[report.priority];
-      const { data, status } = await call("Datadog", `https://api.${creds.site || "datadoghq.com"}/api/v1/events`, {
+      const { data, status } = await call("Datadog", `https://api.${hostName(creds.site, "datadoghq.com", "Site")}/api/v1/events`, {
         method: "POST",
         headers: { "dd-api-key": creds.key },
         json: {

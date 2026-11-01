@@ -83,17 +83,26 @@
   --shadow-float: 0 40px 120px -40px rgba(0, 0, 0, 0.75), 0 0 0 1px var(--border);
   --glow: rgba(255, 255, 255, 0.055);
 
-  /* Typography */
+  /* Typography. Every size is a multiple of --zoom, so Appearance can scale the
+     whole interface without a single component knowing, and every weight comes
+     from --fw-*, so "Text weight" moves the lot by one step. */
   --font-sans: "Inter Variable", "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "JetBrains Mono Variable", ui-monospace, "Cascadia Code", Consolas, monospace;
-  --fs-2xs: 10.5px;
-  --fs-xs: 11.5px;
-  --fs-sm: 12.5px;
-  --fs-md: 13.5px;
-  --fs-lg: 15px;
-  --fs-xl: 18px;
-  --fs-2xl: 21px;
+  /* 1 is the reading size the marketing site was tuned at; the app runs a notch
+     larger because it is worked in, not read once. */
+  --zoom: 1.07;
+  --fs-2xs: calc(10.5px * var(--zoom));
+  --fs-xs: calc(11.5px * var(--zoom));
+  --fs-sm: calc(12.5px * var(--zoom));
+  --fs-md: calc(13.5px * var(--zoom));
+  --fs-lg: calc(15px * var(--zoom));
+  --fs-xl: calc(18px * var(--zoom));
+  --fs-2xl: calc(21px * var(--zoom));
   --lh: 1.45;
+  --fw-regular: 450;
+  --fw-medium: 540;
+  --fw-strong: 620;
+  --fw-heavy: 700;
 
   /* Radius */
   --r-xs: 4px;
@@ -103,11 +112,11 @@
   --r-xl: 12px;
 
   /* Density */
-  --row-h: 36px;
-  --control-h: 30px;
-  --control-h-sm: 26px;
-  --nav-item-h: 30px;
-  --page-header-h: 46px;
+  --row-h: calc(36px * var(--zoom));
+  --control-h: calc(30px * var(--zoom));
+  --control-h-sm: calc(26px * var(--zoom));
+  --nav-item-h: calc(31px * var(--zoom));
+  --page-header-h: calc(46px * var(--zoom));
   --icon: 16px;
   --icon-sm: 14px;
 
@@ -122,7 +131,11 @@
   --enter-scale: 0.97;
   --enter-shift: 4px;
 
-  --sidebar-w: 220px;
+  /* Padding this small is deliberate: it keeps the nav items wide and the rail
+     free of dead space. --sidebar-rail is the width once it is collapsed. */
+  --sidebar-w: calc(212px * var(--zoom));
+  --sidebar-rail: calc(50px * var(--zoom));
+  --sidebar-pad: 6px;
   --panel-w: 460px;
 }
 
@@ -199,12 +212,50 @@
 
 /* Compact density: shorter rows and controls everywhere. */
 :root[data-density="compact"] {
-  --row-h: 30px;
-  --control-h: 27px;
-  --control-h-sm: 23px;
-  --nav-item-h: 27px;
-  --page-header-h: 42px;
-  --sidebar-w: 204px;
+  --row-h: calc(30px * var(--zoom));
+  --control-h: calc(27px * var(--zoom));
+  --control-h-sm: calc(23px * var(--zoom));
+  --nav-item-h: calc(28px * var(--zoom));
+  --page-header-h: calc(42px * var(--zoom));
+  --sidebar-w: calc(198px * var(--zoom));
+  --sidebar-pad: 5px;
+}
+
+/* Interface scale, set by Appearance. Type, controls, rows and the sidebar all
+   follow, because each of those tokens is written as a multiple of --zoom. */
+:root[data-zoom="s"] {
+  --zoom: 1;
+}
+:root[data-zoom="l"] {
+  --zoom: 1.14;
+}
+:root[data-zoom="xl"] {
+  --zoom: 1.22;
+}
+
+/* The marketing site keeps the size and weight it was tuned at, whatever the
+   app is set to. It sits inside the same document, so it opts out by hand. */
+.site {
+  --zoom: 1;
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-strong: 600;
+  --fw-heavy: 700;
+  font-weight: var(--fw-regular);
+}
+
+/* Text weight, set by Appearance. One step lighter or heavier, everywhere. */
+:root[data-weight="light"] {
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-strong: 580;
+  --fw-heavy: 660;
+}
+:root[data-weight="heavy"] {
+  --fw-regular: 500;
+  --fw-medium: 600;
+  --fw-strong: 680;
+  --fw-heavy: 760;
 }
 
 /* Reduced motion collapses every duration and entrance. */

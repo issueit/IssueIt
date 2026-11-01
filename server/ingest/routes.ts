@@ -13,15 +13,17 @@ import { hitAll, type Limit } from "../lib/ratelimit";
 import { storage } from "../lib/storage";
 import { describeUserAgent } from "../lib/useragent";
 import { reportCountry } from "../lib/geo";
-import { clientIp, parse } from "../http";
+import { clientIp, httpUrl, parse } from "../http";
 import { allowanceFor, countedOne, limitsFor, noteRefusal, warnAboutUsage } from "../billing/entitlements";
 import { enqueueDuplicate, enqueueReportEvent } from "../delivery/queue";
 import { queueReceipt } from "../mail/outbox";
 import { notifyAboutReport } from "../mail/notify";
 import { cleanDiagnostics } from "./diagnostics";
+import { compilePatterns, scrubLink } from "../lib/scrub";
 import { cleanFilename, sniff } from "./files";
 import { fingerprintFor } from "./grouping";
 import { isBrowserToken, MAX_TOKEN_SECONDS, mintBrowserToken, readBrowserToken } from "./browser-token";
+import { contentHashOf, isBlocked, scoreSpam, spamCheckEnabled, velocityFor, type SpamVerdict } from "./protection";
 import { matchesRule } from "../delivery/queue";
 import { getProvider } from "../integrations";
 
@@ -72,7 +74,7 @@ const reportInput = z.object({
   release: shortText(80),
   /** Your own key for this submission; sending it twice files one report. */
   idempotency_key: shortText(120),
-  page_url: z.string().trim().max(2000).url("Use a full URL.").optional().nullable().or(z.literal("")),
+  page_url: httpUrl(2000).optional().nullable().or(z.literal("")),
   browser: shortText(200),
   email: z.string().trim().toLowerCase().email("Enter a valid email address.").max(254).optional().nullable().or(z.literal("")),
   name: shortText(80),
@@ -172,7 +174,7 @@ export const ingestRoutes = new Hono()
     if (c.req.header("origin")) throw new AppError(400, "key_in_browser", "Secret keys must only be used from your server.");
     const key = await db.query.apiKeys.findFirst({ where: and(eq(schema.apiKeys.keyHash, sha256(token)), isNull(schema.apiKeys.revokedAt)) });
     if (!key || key.projectId !== project.id) throw new AppError(401, "invalid_key", "That secret key isn't valid for this project.");
-    const rl = hitAll([{ key: `mint:${key.id}`, max: config.limits.reportsPerKeyPerMinute, windowMs: 60_000 }]);
+    const rl = await hitAll([{ key: `mint:${key.id}`, max: config.limits.reportsPerKeyPerMinute, windowMs: 60_000 }]);
     if (!rl.ok) {
       c.header("retry-after", String(rl.retryAfter));
       throw tooMany("Too many tokens minted in a short time.");
@@ -229,13 +231,22 @@ export const ingestRoutes = new Hono()
       const plan = limitsFor(org);
 
       const ip = keyedHash(clientIp(c));
-      const limits: Limit[] = [{ key: `ingest:project:${project.id}`, max: config.limits.reportsPerProjectPerHour, windowMs: 3600_000 }];
+      const limits: Limit[] = [
+        { key: `ingest:project:${project.id}`, max: config.limits.reportsPerProjectPerHour, windowMs: 3600_000 },
+        /**
+         * The same ceiling for the organisation as a whole. Without it, a
+         * plan that allows plenty of projects allows plenty of times the
+         * hourly ceiling: one spam run, spread over ten projects, stayed
+         * inside every per-project limit.
+         */
+        { key: `ingest:org:${project.orgId}`, max: config.limits.reportsPerOrgPerHour, windowMs: 3600_000 },
+      ];
       limits.push(
         viaKeyId
           ? { key: `ingest:key:${viaKeyId}`, max: plan.reportsPerKeyPerMinute, windowMs: 60_000 }
           : { key: `ingest:ip:${project.id}:${ip}`, max: config.limits.reportsPerIpPerMinute, windowMs: 60_000 },
       );
-      const rl = hitAll(limits);
+      const rl = await hitAll(limits);
       if (!rl.ok) {
         c.header("retry-after", String(rl.retryAfter));
         throw tooMany("Too many reports in a short time. Wait a moment and try again.");
@@ -281,8 +292,15 @@ export const ingestRoutes = new Hono()
       /** Says what would happen without storing anything. */
       const dryRun = ["1", "true", "yes"].includes((c.req.query("dry_run") ?? "").toLowerCase());
 
-      if (input.website) {
-        // Pretend to accept honeypot submissions so bots learn nothing.
+      /**
+       * The honeypot, and reporters this project has blocked. Both are
+       * answered as though the report had been filed: a spammer who can tell
+       * refusal from acceptance tries again differently, and one who can't
+       * carries on posting into nothing.
+       */
+      const anonymous = !viaKeyId && !viaBrowserToken;
+      if (input.website) return c.json({ success: true, report_id: newId("rep"), message: "Report received" }, 201);
+      if (anonymous && isBlocked(project.protection, { ipHash: ip, email: input.reporter?.email || input.email || null })) {
         return c.json({ success: true, report_id: newId("rep"), message: "Report received" }, 201);
       }
       const allowed = { attachmentBytes: Math.min(plan.attachmentBytes, config.limits.attachmentBytes), attachmentsPerReport: Math.min(plan.attachmentsPerReport, config.limits.attachmentsPerReport) };
@@ -296,10 +314,12 @@ export const ingestRoutes = new Hono()
         return { id: newId("att"), filename: cleanFilename(f.name, type.ext), contentType: type.contentType, data: f.data };
       });
 
-      if (config.limits.storageBytes && prepared.length) {
+      // The plan's cap, or the operator's, whichever is set and smaller.
+      const storageCap = [plan.storageBytes, config.limits.storageBytes].filter((n) => n > 0).sort((a, b) => a - b)[0] ?? 0;
+      if (storageCap && prepared.length) {
         const [row] = await db.execute<{ bytes: number }>(sql`select coalesce(sum(size_bytes), 0)::bigint as bytes from attachments where org_id = ${project.orgId}`);
         const incoming = prepared.reduce((n, f) => n + f.data.byteLength, 0);
-        if (Number(row.bytes) + incoming > config.limits.storageBytes) {
+        if (Number(row.bytes) + incoming > storageCap) {
           await noteRefusal(org.id, "storage_limit");
           throw new AppError(507, "storage_full", "This organisation has used all of its attachment storage.");
         }
@@ -316,7 +336,16 @@ export const ingestRoutes = new Hono()
       const metadata = input.metadata ?? {};
       if (JSON.stringify(metadata).length > 16_384) throw badRequest("metadata: Keep metadata under 16 KB.");
       const diagnostics = cleanDiagnostics(input.diagnostics, project.rules.redaction?.patterns);
-      const pageUrl = input.page_url || null;
+      /**
+       * An address can carry the very thing nobody wants stored: a reset
+       * token, a session in a fragment, an email in the query. The widget
+       * takes those out before sending; here it happens again, because a
+       * report can arrive from anywhere, and the project's own redaction
+       * rules apply to the address as much as to the console.
+       */
+      const redaction = compilePatterns(project.rules.redaction?.patterns);
+      const pageUrl = input.page_url ? scrubLink(input.page_url, 2000, redaction) : null;
+      if (context.referrer) context.referrer = scrubLink(context.referrer, 2000, redaction);
       const fingerprint = fingerprintFor({ fingerprint: input.fingerprint, title: input.title, pageUrl }, project.rules.grouping);
       const reporterEmail = input.reporter?.email || input.email || null;
       // Emails go to whatever address is typed in, so one visitor can only ask for a few a day.
@@ -332,8 +361,34 @@ export const ingestRoutes = new Hono()
       const priority = priorityAliases[(input.priority ?? input.severity ?? "medium").toLowerCase()] ?? "medium";
       const source = input.source || (viaKeyId ? "api" : origin === appOrigin ? "form" : origin || viaBrowserToken ? "widget" : "api");
 
+      /**
+       * Is anyone going to want to read this? Only asked of public
+       * submissions: a secret key or a short-lived token means the project's
+       * own server vouched for the sender, and second-guessing it there
+       * would hold back reports a customer filed deliberately.
+       *
+       * A report that looks like spam is still stored — see protection.ts.
+       * What it loses is delivery, email, and a place in the inbox.
+       */
+      const contentHash = contentHashOf(input.title, input.description ?? "");
+      const verdict: SpamVerdict | null = anonymous && spamCheckEnabled(project.protection)
+        ? scoreSpam(
+            {
+              title: input.title,
+              description: input.description ?? "",
+              pageUrl,
+              reporterEmail,
+              hasDiagnostics: !!(diagnostics.console?.length || diagnostics.network?.length || diagnostics.steps?.length),
+              source,
+            },
+            await velocityFor(project.id, ip, contentHash),
+            project.protection,
+          )
+        : null;
+      const quarantined = !!verdict?.spam;
+
       if (dryRun) {
-        const [openGroup] = fingerprint && project.groupDuplicates
+        const [openGroup] = fingerprint && project.groupDuplicates && !quarantined
           ? await db
               .select({ id: schema.reports.id, number: schema.reports.number, title: schema.reports.title, duplicateCount: schema.reports.duplicateCount })
               .from(schema.reports)
@@ -356,9 +411,15 @@ export const ingestRoutes = new Hono()
             id: d.id,
             name: d.name,
             provider: d.provider,
-            would_deliver: wouldDeliver && !openGroup,
+            would_deliver: wouldDeliver && !openGroup && !quarantined,
             // A duplicate isn't delivered again; the tracker may get a comment instead.
-            why: !wouldDeliver ? "the destination's rule doesn't match this report" : openGroup ? "this report would join an open group, so it isn't delivered again" : null,
+            why: !wouldDeliver
+              ? "the destination's rule doesn't match this report"
+              : quarantined
+                ? "this report would be held back as likely spam"
+                : openGroup
+                  ? "this report would join an open group, so it isn't delivered again"
+                  : null,
           };
         });
         return c.json({
@@ -370,7 +431,8 @@ export const ingestRoutes = new Hono()
           diagnostics,
           attachments: prepared.map((f) => ({ filename: f.filename, content_type: f.contentType, size_bytes: f.data.byteLength })),
           destinations: routed,
-          would_email: !!notifyReporter,
+          would_email: !!notifyReporter && !quarantined,
+          spam: verdict && { score: verdict.score, held: verdict.spam, reasons: verdict.reasons },
           message: "Nothing was stored.",
         });
       }
@@ -390,7 +452,7 @@ export const ingestRoutes = new Hono()
             .where(eq(schema.projects.id, project.id))
             .returning({ n: schema.projects.reportSeq });
           // The same bug, still open: join its group. The lock keeps two at once from both starting one.
-          if (fingerprint && project.groupDuplicates) {
+          if (fingerprint && project.groupDuplicates && !quarantined) {
             await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`${project.id}:${fingerprint}`}))`);
             const [open] = await tx
               .select()
@@ -435,6 +497,10 @@ export const ingestRoutes = new Hono()
               groupId: lead?.id ?? null,
               ipHash: ip,
               viaKeyId,
+              contentHash,
+              quarantinedAt: quarantined ? new Date() : null,
+              spamScore: verdict?.score ?? null,
+              spamReasons: quarantined ? verdict!.reasons : [],
             })
             .returning();
           if (prepared.length) {
@@ -456,6 +522,17 @@ export const ingestRoutes = new Hono()
       } catch (err) {
         await Promise.all(written.map((k) => storage.remove(k).catch(() => {})));
         throw err;
+      }
+
+      /**
+       * Held back: stored, and that is all. No destination hears about it,
+       * nobody is emailed, and it doesn't count against the month, because
+       * charging a customer for a spam run would be the second insult. It
+       * waits in the inbox's spam view until someone says otherwise.
+       */
+      if (quarantined) {
+        await publish({ type: "report.created", orgId: report.orgId, projectId: report.projectId, reportId: report.id }).catch(() => {});
+        return c.json({ success: true, report_id: report.id, message: "Report received" }, 201);
       }
 
       countedOne(org.id);

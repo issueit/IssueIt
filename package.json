@@ -7,9 +7,10 @@
   "scripts": {
     "dev:server": "tsx watch server/index.ts",
     "dev:web": "vite",
-    "build": "npm run build:web && npm run build:widget && npm run build:server",
+    "build": "npm run build:web && npm run build:widget && npm run build:llms && npm run build:server",
     "build:web": "vite build",
     "build:widget": "node scripts/build-widget.mjs",
+    "build:llms": "node scripts/build-llms.mjs",
     "build:server": "esbuild server/index.ts --bundle --platform=node --format=esm --target=node22 --packages=external --outfile=dist/server/index.js",
     "start": "node dist/server/index.js",
     "db:generate": "drizzle-kit generate",

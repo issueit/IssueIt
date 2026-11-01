@@ -11,6 +11,7 @@ import { IntegrationError } from "../integrations/http";
 import type { Credentials } from "../integrations/types";
 import { smtpSend } from "./smtp";
 import { brandOf, renderReporterEmail } from "./templates";
+import { ownerVerified } from "../billing/entitlements";
 
 /**
  * Emails to reporters, through an outbox like deliveries: rows in Postgres,
@@ -101,6 +102,15 @@ export async function queueResolved(report: Report) {
 
 async function insert(items: Array<{ report: Report; to: string; kind: EmailKind }>, skipped: string | null) {
   if (!items.length) return;
+  /**
+   * Mail to a stranger, sent by an account nobody has confirmed, is a spam
+   * relay with extra steps. The row is still written, marked skipped with
+   * the reason, so the project can see what would have gone out and why it
+   * didn't.
+   */
+  if (!skipped && !(await ownerVerified(items[0].report.orgId))) {
+    skipped = "An owner of this organisation hasn't confirmed their email address yet, so Issueit didn't send this.";
+  }
   const inserted = await db
     .insert(schema.emails)
     .values(

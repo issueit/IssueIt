@@ -10,9 +10,32 @@ const units: Array<[number, string]> = [
   [Infinity, "y"],
 ];
 
+/**
+ * How dates read, set once from the saved settings rather than passed down
+ * through every list. Components that show dates read the preferences too, so
+ * they re-render when the answer arrives.
+ */
+let dateStyle: "relative" | "absolute" = "relative";
+let clock: "24h" | "12h" = "24h";
+
+export function setDateFormat(next: { dates: "relative" | "absolute"; clock: "24h" | "12h" }) {
+  dateStyle = next.dates;
+  clock = next.clock;
+}
+
+/** Short enough for a column: "31 Oct 14:32", or "31 Oct" without the suffix. */
+function shortDate(date: Date, withTime: boolean) {
+  return date.toLocaleString("en-GB", {
+    day: "numeric",
+    month: "short",
+    ...(withTime ? ({ hour: "2-digit", minute: "2-digit", hour12: clock === "12h" } as const) : {}),
+  });
+}
+
 export function relativeTime(value: string | Date | null | undefined, suffix = true): string {
   if (!value) return "never";
   const date = typeof value === "string" ? new Date(value) : value;
+  if (dateStyle === "absolute") return shortDate(date, suffix);
   let delta = (Date.now() - date.getTime()) / 1000;
   const future = delta < 0;
   delta = Math.abs(delta);
@@ -30,7 +53,7 @@ export function relativeTime(value: string | Date | null | undefined, suffix = t
 
 export function fullDate(value: string | Date | null | undefined): string {
   if (!value) return "";
-  return new Date(value).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" });
+  return new Date(value).toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: clock === "12h" });
 }
 
 /** "1 report", "3 reports". */

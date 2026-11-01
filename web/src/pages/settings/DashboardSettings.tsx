@@ -1,25 +1,44 @@
 import { Link } from "react-router";
-import { cardCatalogue, kindLabels, kpiLabels, moveCard, patchCard, rangeLabels, sizeLabels, usePreferences, type CardId, type CardSize, type ChartKind, type KpiId } from "../../lib/preferences";
+import {
+  cardCatalogue,
+  cardStyleLabels,
+  kindLabels,
+  kpiLabels,
+  kpiSizeLabels,
+  moveCard,
+  moveKpi,
+  patchCard,
+  rangeLabels,
+  sizeLabels,
+  usePreferences,
+  type CardId,
+  type CardSize,
+  type ChartKind,
+  type AppPrefs,
+  type DashboardPrefs,
+  type KpiId,
+} from "../../lib/preferences";
 import { useProjects } from "../../lib/queries";
 import type { AnalyticsRange } from "../../lib/types";
 import { Button, IconButton } from "../../components/ui/Button";
-import { Checkbox, Segmented, Slider, Switch } from "../../components/ui/controls";
+import { Segmented, Slider, Switch } from "../../components/ui/controls";
 import { confirm } from "../../components/ui/Dialog";
 import { Input, Select } from "../../components/ui/Field";
 import { Skeleton } from "../../components/ui/feedback";
-import { AltArrowDownIcon, AltArrowLeftIcon, UndoLeftIcon } from "../../components/ui/icons";
+import { AddIcon, AltArrowDownIcon, AltArrowLeftIcon, CloseIcon, UndoLeftIcon } from "../../components/ui/icons";
+import { Menu } from "../../components/ui/Menu";
 import { SetGroup, SetRow } from "../../components/ui/layout";
 
 /** Your dashboard: which cards, in what order, how they draw. Saved for you in this organisation. */
 export function DashboardSettings() {
-  const { ready, dashboard: d, updateDashboard, resetDashboard } = usePreferences();
+  const { ready, dashboard: d, updateDashboard, resetDashboard, app, updateApp } = usePreferences();
   const projects = useProjects();
   if (!ready) return <Skeleton h={300} />;
 
   const reset = async () => {
     if (await confirm({ title: "Reset your dashboard?", message: "Cards, order and display options go back to the defaults.", confirmLabel: "Reset", danger: true })) resetDashboard();
   };
-  const toggleKpi = (id: KpiId, on: boolean) => updateDashboard((x) => ({ ...x, kpis: on ? [...x.kpis, id] : x.kpis.filter((k) => k !== id) }));
+  const unused = (Object.keys(kpiLabels) as KpiId[]).filter((k) => !d.kpis.includes(k));
 
   return (
     <>
@@ -50,7 +69,7 @@ export function DashboardSettings() {
           <Select
             small
             aria-label="Projects"
-            className="!w-[180px]"
+            className="!w-[190px]"
             value={d.project}
             onChange={(e) => updateDashboard({ project: e.target.value })}
             options={[{ value: "all", label: "All projects" }, ...(projects.data?.projects ?? []).map((p) => ({ value: p.id, label: p.name }))]}
@@ -93,7 +112,7 @@ export function DashboardSettings() {
                   <Select
                     small
                     aria-label={`Chart for ${info.title}`}
-                    className="!w-[110px]"
+                    className="!w-[118px]"
                     value={card.kind}
                     onChange={(e) => updateDashboard((x) => patchCard(x, card.id, { kind: e.target.value as ChartKind }))}
                     options={info.kinds.map((k) => ({ value: k, label: kindLabels[k] }))}
@@ -102,7 +121,7 @@ export function DashboardSettings() {
                 <Select
                   small
                   aria-label={`Width of ${info.title}`}
-                  className="!w-[110px]"
+                  className="!w-[118px]"
                   value={card.size}
                   onChange={(e) => updateDashboard((x) => patchCard(x, card.id, { size: e.target.value as CardSize }))}
                   options={(Object.keys(sizeLabels) as CardSize[]).map((s) => ({ value: s, label: sizeLabels[s] }))}
@@ -114,19 +133,50 @@ export function DashboardSettings() {
         })}
       </SetGroup>
 
+      {/* Key numbers are a row, so their order is the order they are read in. */}
       <SetGroup title="Key numbers">
-        <div className="p-3.5 grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-          {(Object.keys(kpiLabels) as KpiId[]).map((id) => (
-            <Checkbox key={id} checked={d.kpis.includes(id)} onChange={(on) => toggleKpi(id, on)}>
-              {kpiLabels[id]}
-            </Checkbox>
-          ))}
-        </div>
+        <SetRow label="Tile size" hint="Wider tiles mean fewer on a row.">
+          <Segmented<DashboardPrefs["kpiSize"]>
+            ariaLabel="Tile size"
+            value={d.kpiSize}
+            onChange={(kpiSize) => updateDashboard({ kpiSize })}
+            options={(Object.keys(kpiSizeLabels) as Array<DashboardPrefs["kpiSize"]>).map((k) => ({ value: k, label: kpiSizeLabels[k] }))}
+          />
+        </SetRow>
+        {d.kpis.map((id, i) => (
+          <div key={id} className="set-row">
+            <div className="flex flex-col">
+              <IconButton size="sm" icon={AltArrowLeftIcon} className="rotate-90" label={`Move ${kpiLabels[id]} earlier`} disabled={i === 0} onClick={() => updateDashboard((x) => moveKpi(x, id, -1))} />
+              <IconButton size="sm" icon={AltArrowDownIcon} label={`Move ${kpiLabels[id]} later`} disabled={i === d.kpis.length - 1} onClick={() => updateDashboard((x) => moveKpi(x, id, 1))} />
+            </div>
+            <div className="set-row__text">
+              <div className="set-row__label">{kpiLabels[id]}</div>
+            </div>
+            <div className="set-row__control">
+              <IconButton size="sm" icon={CloseIcon} label={`Remove ${kpiLabels[id]}`} onClick={() => updateDashboard((x) => ({ ...x, kpis: x.kpis.filter((k) => k !== id) }))} />
+            </div>
+          </div>
+        ))}
+        <SetRow label={d.kpis.length ? "Add another" : "No key numbers chosen"} hint={d.kpis.length ? undefined : "The card needs at least one."}>
+          <Menu
+            trigger={
+              <Button size="sm" icon={AddIcon} disabled={!unused.length}>
+                Add
+              </Button>
+            }
+            items={unused.map((id) => ({ label: kpiLabels[id], onSelect: () => updateDashboard((x) => ({ ...x, kpis: [...x.kpis, id] })) }))}
+          />
+        </SetRow>
       </SetGroup>
 
-      <SetGroup title="Charts">
-        <SetRow label="Chart height">
-          <Slider label="Chart height" value={d.chartHeight} min={140} max={380} step={10} unit="px" onChange={(chartHeight) => updateDashboard({ chartHeight })} />
+      <SetGroup title="How it looks">
+        <SetRow label="Cards" hint="Outlined draws a line round each card, raised lifts it off the page, plain leaves only its name.">
+          <Segmented<DashboardPrefs["cardStyle"]>
+            ariaLabel="Card style"
+            value={d.cardStyle}
+            onChange={(cardStyle) => updateDashboard({ cardStyle })}
+            options={(Object.keys(cardStyleLabels) as Array<DashboardPrefs["cardStyle"]>).map((k) => ({ value: k, label: cardStyleLabels[k] }))}
+          />
         </SetRow>
         <SetRow label="Density" hint="Compact fits more on screen.">
           <Segmented
@@ -138,6 +188,21 @@ export function DashboardSettings() {
               { value: "compact", label: "Compact" },
             ]}
           />
+        </SetRow>
+        <SetRow label="Line above the grid" hint="Names the project and period you are looking at, and whether live updates are on.">
+          <Switch label="Line above the grid" checked={d.showCaption} onChange={(showCaption) => updateDashboard({ showCaption })} />
+        </SetRow>
+        <SetRow label="Figures beside card names" hint="The headline number, so a card reads without its chart.">
+          <Switch label="Figures beside card names" checked={d.summaries} onChange={(summaries) => updateDashboard({ summaries })} />
+        </SetRow>
+        <SetRow label="Hide cards with nothing in them" hint="Leaves out any card with no data for the period. They come back as soon as there is something to show.">
+          <Switch label="Hide cards with nothing in them" checked={d.hideEmpty} onChange={(hideEmpty) => updateDashboard({ hideEmpty })} />
+        </SetRow>
+      </SetGroup>
+
+      <SetGroup title="Charts">
+        <SetRow label="Chart height">
+          <Slider label="Chart height" value={d.chartHeight} min={140} max={380} step={10} unit="px" onChange={(chartHeight) => updateDashboard({ chartHeight })} />
         </SetRow>
         <SetRow label="Legend position" hint="Charts with more than one series always have a legend.">
           <Segmented
@@ -151,14 +216,31 @@ export function DashboardSettings() {
             ]}
           />
         </SetRow>
+        <SetRow label="Tooltips" hint="Every series reads the whole column at once; just the one reads only what the pointer is on.">
+          <Segmented<DashboardPrefs["tooltip"]>
+            ariaLabel="Tooltips"
+            value={d.tooltip}
+            onChange={(tooltip) => updateDashboard({ tooltip })}
+            options={[
+              { value: "all", label: "Every series" },
+              { value: "one", label: "Just the one" },
+            ]}
+          />
+        </SetRow>
         <SetRow label="Split reports by priority" hint="Stacks the reports-over-time columns by priority.">
           <Switch label="Split reports by priority" checked={d.stackPriority} onChange={(stackPriority) => updateDashboard({ stackPriority })} />
         </SetRow>
         <SetRow label="Values on bars" hint="Writes the number at the end of each bar in single-series charts.">
           <Switch label="Values on bars" checked={d.values} onChange={(values) => updateDashboard({ values })} />
         </SetRow>
+        <SetRow label="Shares beside counts" hint="Adds the percentage of the period's total to ranked lists and breakdown tooltips.">
+          <Switch label="Shares beside counts" checked={d.percent} onChange={(percent) => updateDashboard({ percent })} />
+        </SetRow>
         <SetRow label="Smooth lines">
           <Switch label="Smooth lines" checked={d.smooth} onChange={(smooth) => updateDashboard({ smooth })} />
+        </SetRow>
+        <SetRow label="Markers on lines" hint="A dot at each point, as long as there are few enough to tell apart.">
+          <Switch label="Markers on lines" checked={d.points} onChange={(points) => updateDashboard({ points })} />
         </SetRow>
         <SetRow label="Gridlines">
           <Switch label="Gridlines" checked={d.grid} onChange={(grid) => updateDashboard({ grid })} />
@@ -177,6 +259,32 @@ export function DashboardSettings() {
             options={[
               { value: "compact", label: "12.3K" },
               { value: "full", label: "12,345" },
+            ]}
+          />
+        </SetRow>
+      </SetGroup>
+
+      {/* The same two settings as on General: an hour is written one way across the app. */}
+      <SetGroup title="Days and hours">
+        <SetRow label="Week starts on" hint="Sets the order of the rows in when reports arrive. Shared with the rest of the app.">
+          <Segmented<AppPrefs["weekStart"]>
+            ariaLabel="Week starts on"
+            value={app.weekStart}
+            onChange={(weekStart) => updateApp({ weekStart })}
+            options={[
+              { value: "mon", label: "Monday" },
+              { value: "sun", label: "Sunday" },
+            ]}
+          />
+        </SetRow>
+        <SetRow label="Clock" hint="Shared with the rest of the app.">
+          <Segmented<AppPrefs["clock"]>
+            ariaLabel="Clock"
+            value={app.clock}
+            onChange={(clock) => updateApp({ clock })}
+            options={[
+              { value: "24h", label: "14:00" },
+              { value: "12h", label: "2pm" },
             ]}
           />
         </SetRow>

@@ -58,7 +58,7 @@ export const requireAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
     .limit(1);
   if (!row) throw unauthorised("That token isn't valid. It may have been revoked or have expired.");
 
-  const limit = hit({ key: `token:${row.token.id}`, max: config.limits.tokenRequestsPerMinute, windowMs: 60_000 });
+  const limit = await hit({ key: `token:${row.token.id}`, max: config.limits.tokenRequestsPerMinute, windowMs: 60_000 });
   if (!limit.ok) throw tooMany(`This token is making too many requests. Try again in ${limit.retryAfter} seconds.`);
 
   // The role is read fresh every time, so demoting someone narrows their

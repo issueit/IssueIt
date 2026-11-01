@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { api, describeError } from "../../lib/api";
 import { bytes, fullDate, relativeTime } from "../../lib/format";
 import { useReport } from "../../lib/queries";
+import { safeHref } from "../../lib/urls";
 import { useOrg } from "../../lib/session";
 import type { Priority, ReportDetail, ReportStatus } from "../../lib/types";
 import { Button, IconButton } from "../../components/ui/Button";
@@ -22,6 +23,7 @@ import {
   LinkMinimalistic2Icon,
   MenuDotsIcon,
   RestartIcon,
+  ShieldWarningIcon,
   SquareArrowRightUpIcon,
   TrashBin2Icon,
   UsersGroupRoundedIcon,
@@ -36,10 +38,10 @@ const statuses: ReportStatus[] = ["new", "investigating", "resolved", "closed"];
 const priorities: Priority[] = ["critical", "high", "medium", "low"];
 
 /** Report details in a side panel. Status changes are optimistic with Undo. */
-export function ReportPanel({ id, onClose }: { id: string; onClose: () => void }) {
+export function ReportPanel({ id, onClose, full }: { id: string; onClose: () => void; full?: boolean }) {
   const report = useReport(id);
   return (
-    <aside className="panel" aria-label="Report details" onKeyDown={(e) => e.key === "Escape" && onClose()}>
+    <aside className={`panel ${full ? "panel--full" : ""}`} aria-label="Report details" onKeyDown={(e) => e.key === "Escape" && onClose()}>
       {report.isPending ? (
         <PanelSkeleton onClose={onClose} />
       ) : report.isError ? (
@@ -115,6 +117,40 @@ function ReportView({ data, onClose }: { data: ReportDetail; onClose: () => void
       openReport(out.groupId);
     } catch (err) {
       toastError(describeError(err, "Couldn't add it to that report."));
+    }
+  };
+
+  /** Lets a held-back report out: delivered and emailed as if it had just arrived. */
+  const notSpam = async () => {
+    try {
+      await api(path(`/reports/${r.id}/not-spam`), { body: {} });
+      refresh();
+      qc.invalidateQueries({ queryKey: ["org", orgId, "reports", "detail", r.id] });
+      toast("Sending it to your destinations now");
+    } catch (err) {
+      toastError(describeError(err, "Couldn't release that report."));
+    }
+  };
+
+  /** Nothing more from this reporter, on this project. */
+  const blockReporter = async () => {
+    const alsoEmail = !!r.reporterEmail;
+    const ok = await confirm({
+      title: "Block this reporter?",
+      message: alsoEmail
+        ? `Reports from them and from ${r.reporterEmail} stop being accepted for ${r.project.name}. They aren't told. You can undo it in the project's settings.`
+        : `Reports from them stop being accepted for ${r.project.name}. They aren't told. You can undo it in the project's settings.`,
+      confirmLabel: "Block reporter",
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await api(path(`/reports/${r.id}/block`), { body: { ip: true, email: alsoEmail, spam: true } });
+      refresh();
+      qc.invalidateQueries({ queryKey: ["org", orgId, "reports", "detail", r.id] });
+      toast("Blocked. Nothing more from them will be accepted.");
+    } catch (err) {
+      toastError(describeError(err, "Couldn't block that reporter."));
     }
   };
 
@@ -194,9 +230,13 @@ function ReportView({ data, onClose }: { data: ReportDetail; onClose: () => void
     [
       "Page",
       r.pageUrl ? (
-        <a href={r.pageUrl} target="_blank" rel="noopener noreferrer nofollow" className="mono text-text underline-offset-2 hover:underline">
-          {r.pageUrl}
-        </a>
+        safeHref(r.pageUrl) ? (
+          <a href={safeHref(r.pageUrl)!} target="_blank" rel="noopener noreferrer nofollow" className="mono text-text underline-offset-2 hover:underline">
+            {r.pageUrl}
+          </a>
+        ) : (
+          <span className="mono">{r.pageUrl}</span>
+        )
       ) : null,
     ],
     ["Environment", r.environment],
@@ -244,6 +284,8 @@ function ReportView({ data, onClose }: { data: ReportDetail; onClose: () => void
               { label: "Copy report id", icon: CopyIcon, onSelect: () => copyText(r.id, "report id") },
               ...(group ? [{ label: "Separate from the group", onSelect: separate }] : [{ label: "Add to another report…", icon: UsersGroupRoundedIcon, onSelect: joinGroup }]),
               "separator",
+              // Spam that got through: the same block, from the report that proves it.
+              ...(r.quarantinedAt ? [] : [{ label: "Block this reporter…", icon: ShieldWarningIcon, danger: true, onSelect: blockReporter }]),
               { label: "Delete report…", icon: TrashBin2Icon, danger: true, onSelect: remove },
             ]}
           />
@@ -254,6 +296,25 @@ function ReportView({ data, onClose }: { data: ReportDetail; onClose: () => void
       {viewing !== null && images[viewing] && <Lightbox images={images} startAt={viewing} onClose={() => setViewing(null)} />}
 
       <div className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-6">
+        {r.quarantinedAt && (
+          <Callout
+            tone="warning"
+            title="Held back as likely spam"
+            action={
+              <div className="flex gap-1.5">
+                <Button size="sm" onClick={notSpam}>
+                  Not spam
+                </Button>
+                <Button size="sm" variant="quiet" onClick={blockReporter}>
+                  Block reporter
+                </Button>
+              </div>
+            }
+          >
+            It wasn't sent to your destinations, nobody was emailed, and it doesn't count against your allowance. It will be deleted a week after it arrived.
+            {r.spamReasons.length > 0 && <> Why: {r.spamReasons.join("; ")}.</>}
+          </Callout>
+        )}
         {group && (
           <Callout
             tone="info"

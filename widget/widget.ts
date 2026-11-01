@@ -15,6 +15,8 @@
  * project's widget settings in the dashboard.
  */
 
+import { safeLink, scrubLink, scrubText } from "../shared/scrub";
+
 type FieldMode = "off" | "optional" | "required";
 type WidgetField = {
   key: string;
@@ -147,6 +149,131 @@ type Remote = {
   emails?: { updates: boolean };
   limits: { attachmentBytes: number; attachmentsPerReport: number };
 };
+
+/* ------------------------------------------------------- settings off the wire */
+
+/**
+ * The widget draws itself from settings it fetched over the network, and
+ * builds markup out of them. So none of it is taken on trust: every value is
+ * forced into the shape this file expects before it can reach a template,
+ * and anything unrecognised falls back to the default. The server checks all
+ * of this when it's saved; this is the second lock, for the day something
+ * else is answering for it.
+ */
+const text = (v: unknown, max: number, fallback = "") => (typeof v === "string" ? v.slice(0, max) : fallback);
+const maybeText = (v: unknown, max: number) => (typeof v === "string" ? v.slice(0, max) : null);
+const flag = (v: unknown, fallback: boolean) => (typeof v === "boolean" ? v : fallback);
+const count = (v: unknown, min: number, max: number, fallback: number) => (typeof v === "number" && Number.isFinite(v) ? Math.min(max, Math.max(min, Math.round(v))) : fallback);
+const one = <T extends string>(v: unknown, allowed: readonly T[], fallback: T) => (typeof v === "string" && (allowed as readonly string[]).includes(v) ? (v as T) : fallback);
+const many = (v: unknown, max: number, each: number) =>
+  Array.isArray(v)
+    ? v
+        .filter((x): x is string => typeof x === "string")
+        .slice(0, max)
+        .map((x) => x.slice(0, each))
+    : [];
+const shaped = (v: unknown, re: RegExp) => (typeof v === "string" && re.test(v) ? v : null);
+
+const FIELD_TYPES = ["text", "textarea", "select", "checkbox", "email", "url", "number"] as const;
+const MODES = ["off", "optional", "required"] as const;
+const POSITIONS = ["bottom-right", "bottom-left", "top-right", "top-left", "middle-right", "middle-left"] as const;
+const PRIORITIES = ["low", "medium", "high", "critical"] as const;
+
+function cleanField(raw: unknown): WidgetField | null {
+  if (!raw || typeof raw !== "object") return null;
+  const f = raw as Record<string, unknown>;
+  // A field without a usable key can't be named in the form or read back out of it.
+  const key = shaped(f.key, /^[a-zA-Z0-9_-]{1,40}$/);
+  if (!key) return null;
+  const options = many(f.options, 30, 80);
+  return {
+    key,
+    label: text(f.label, 80, key),
+    type: one(f.type, FIELD_TYPES, "text"),
+    required: flag(f.required, false),
+    placeholder: maybeText(f.placeholder, 120) ?? undefined,
+    help: maybeText(f.help, 200) ?? undefined,
+    options: options.length ? options : undefined,
+  };
+}
+
+export function cleanConfig(raw: unknown): WidgetConfig {
+  const w = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const d = DEFAULTS;
+  return {
+    showButton: flag(w.showButton, d.showButton),
+    buttonLabel: text(w.buttonLabel, 40, d.buttonLabel),
+    buttonIcon: one(w.buttonIcon, ["bug", "chat", "flag", "help", "logo", "none"] as const, d.buttonIcon),
+    buttonStyle: one(w.buttonStyle, ["pill", "square", "icon"] as const, d.buttonStyle),
+    buttonSize: one(w.buttonSize, ["sm", "md", "lg"] as const, d.buttonSize),
+    position: one(w.position, POSITIONS, d.position),
+    offsetX: count(w.offsetX, 0, 200, d.offsetX),
+    offsetY: count(w.offsetY, 0, 200, d.offsetY),
+    theme: one(w.theme, ["auto", "light", "dark"] as const, d.theme),
+    accent: shaped(w.accent, /^#[0-9a-fA-F]{6}$/),
+    radius: count(w.radius, 0, 24, d.radius),
+    panelWidth: count(w.panelWidth, 280, 720, d.panelWidth),
+    font: one(w.font, ["system", "inherit"] as const, d.font),
+    shadow: one(w.shadow, ["none", "soft", "strong"] as const, d.shadow),
+    backdrop: flag(w.backdrop, d.backdrop),
+    // The logo is served by the API from a path it minted itself, never a link to elsewhere.
+    logo: shaped(w.logo, /^\/v1\/[A-Za-z0-9_]{1,40}\/logo\?v=[a-f0-9]{1,64}$/),
+    brandName: text(w.brandName, 60, d.brandName),
+    headerStyle: one(w.headerStyle, ["plain", "filled"] as const, d.headerStyle),
+    poweredBy: flag(w.poweredBy, d.poweredBy),
+    title: text(w.title, 60, d.title),
+    intro: text(w.intro, 300, d.intro),
+    titleLabel: text(w.titleLabel, 60, d.titleLabel),
+    titlePlaceholder: text(w.titlePlaceholder, 80, d.titlePlaceholder),
+    descriptionLabel: text(w.descriptionLabel, 60, d.descriptionLabel),
+    descriptionPlaceholder: text(w.descriptionPlaceholder, 160, d.descriptionPlaceholder),
+    submitLabel: text(w.submitLabel, 30, d.submitLabel),
+    successTitle: text(w.successTitle, 60, d.successTitle),
+    successMessage: text(w.successMessage, 300, d.successMessage),
+    footerNote: text(w.footerNote, 200, d.footerNote),
+    privacyUrl: safeLink(w.privacyUrl, location.href),
+    updatesLabel: text(w.updatesLabel, 80, d.updatesLabel),
+    duplicateMessage: text(w.duplicateMessage, 200, d.duplicateMessage),
+    collectEmail: one(w.collectEmail, MODES, d.collectEmail),
+    collectName: one(w.collectName, MODES, d.collectName),
+    descriptionRequired: flag(w.descriptionRequired, d.descriptionRequired),
+    askPriority: flag(w.askPriority, d.askPriority),
+    defaultPriority: one(w.defaultPriority, PRIORITIES, d.defaultPriority),
+    categories: many(w.categories, 20, 40),
+    categoryLabel: text(w.categoryLabel, 40, d.categoryLabel),
+    customFields: Array.isArray(w.customFields) ? w.customFields.slice(0, 12).map(cleanField).filter((f): f is WidgetField => !!f) : [],
+    allowAttachments: flag(w.allowAttachments, d.allowAttachments),
+    allowScreenshot: flag(w.allowScreenshot, d.allowScreenshot),
+    maxFiles: count(w.maxFiles, 1, 20, d.maxFiles),
+    shortcut: shaped(w.shortcut, /^((mod|ctrl|alt|shift|meta)\+){0,4}[a-z0-9]$/i),
+    autoCloseSeconds: count(w.autoCloseSeconds, 0, 60, d.autoCloseSeconds),
+    hideOnMobile: flag(w.hideOnMobile, d.hideOnMobile),
+    includePages: many(w.includePages, 30, 200),
+    excludePages: many(w.excludePages, 30, 200),
+    sendContext: flag(w.sendContext, d.sendContext),
+    captureConsole: flag(w.captureConsole, d.captureConsole),
+    captureNetwork: flag(w.captureNetwork, d.captureNetwork),
+    captureSteps: flag(w.captureSteps, d.captureSteps),
+    environment: maybeText(w.environment, 40),
+  };
+}
+
+/** What the form should say it accepts. The server enforces its own limits regardless. */
+function cleanRemote(raw: unknown, projectId: string): Remote {
+  const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const project = (r.project && typeof r.project === "object" ? r.project : {}) as Record<string, unknown>;
+  const limits = (r.limits && typeof r.limits === "object" ? r.limits : {}) as Record<string, unknown>;
+  const emails = (r.emails && typeof r.emails === "object" ? r.emails : null) as Record<string, unknown> | null;
+  return {
+    project: { id: projectId, name: text(project.name, 80) },
+    widget: cleanConfig(r.widget),
+    ...(emails ? { emails: { updates: flag(emails.updates, false) } } : {}),
+    limits: {
+      attachmentBytes: count(limits.attachmentBytes, 1024, 100 * 1024 * 1024, 10 * 1024 * 1024),
+      attachmentsPerReport: count(limits.attachmentsPerReport, 1, 20, 5),
+    },
+  };
+}
 
 type PreviewState = "closed" | "form" | "done";
 
@@ -318,25 +445,65 @@ type StepItem = { at: number; kind: "click" | "navigate" | "input"; label: strin
 
 const captured = { console: [] as ConsoleItem[], network: [] as NetworkItem[], steps: [] as StepItem[] };
 const LIMITS = { console: 40, network: 40, steps: 30 };
+type Kind = keyof typeof captured;
 
-function keep<K extends keyof typeof captured>(kind: K, item: (typeof captured)[K][number]) {
+/**
+ * Which kinds are still being recorded. All three to begin with, because
+ * recording has to start before the project's settings have arrived or the
+ * moments before the form opens are already gone; whatever the project
+ * doesn't want is dropped and switched off the moment the answer lands.
+ */
+export const recording: Record<Kind, boolean> = { console: true, network: true, steps: true };
+const KINDS = ["console", "network", "steps"] as const;
+const settingFor = { console: "captureConsole", network: "captureNetwork", steps: "captureSteps" } as const;
+
+/** Whether the wrappers and listeners are installed. */
+let installed = false;
+
+/**
+ * How to give back everything recording took: the wrappers around the
+ * browser's own functions and the listeners on the document. Each one knows
+ * which kind it serves, so a project that only wants console errors isn't
+ * left with fetch wrapped for nothing.
+ */
+const hooks: Array<{ kind: Kind; off: () => void }> = [];
+
+function keep<K extends Kind>(kind: K, item: (typeof captured)[K][number]) {
+  if (!recording[kind]) return;
   const list = captured[kind] as Array<typeof item>;
   list.push(item);
   if (list.length > LIMITS[kind]) list.shift();
 }
 
-/** Emails, tokens and card numbers out; the server does this again. */
-function scrub(value: string, max = 1000) {
-  const out = value
-    .slice(0, max * 2)
-    .replace(/\b(bearer|basic)\s+[^\s"'&,;]{4,}/gi, "$1 [redacted]")
-    .replace(/([\w-]*(?:token|secret|session|cookie|password|passwd|apikey|api[_-]key|auth|credential)[\w-]*)(["']?\s*[:=]\s*["']?)[^\s"'&,;]{4,}/gi, "$1$2[redacted]")
-    .replace(/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g, "[token]")
-    .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, "[email]")
-    .replace(/\b(?:\d[ -]?){12,18}\d\b/g, "[number]")
-    .replace(/\b[A-Za-z0-9_-]{32,}\b/g, "[redacted]");
-  return out.length > max ? `${out.slice(0, max - 1)}…` : out;
+/**
+ * Stops recording these kinds and gives the browser its own functions back.
+ * A wrapper is only unwound if it's still the one on the way in: another
+ * library may have wrapped it since, and taking that one off the chain
+ * would break the page rather than tidy it.
+ */
+function stopRecording(kinds: Kind[]) {
+  for (const kind of kinds) {
+    recording[kind] = false;
+    captured[kind].length = 0;
+  }
+  for (let i = hooks.length - 1; i >= 0; i--) {
+    if (!kinds.includes(hooks[i].kind)) continue;
+    try {
+      hooks[i].off();
+    } catch {
+      // Nothing here is worth breaking a page over.
+    }
+    hooks.splice(i, 1);
+  }
 }
+
+/**
+ * The redaction rules come from shared/scrub.ts, bundled in, so the widget
+ * and the server can't drift apart on what counts as a secret. Captured
+ * text is kept shorter here than the server allows, since forty entries of
+ * it travel with every report.
+ */
+const scrub = (value: string, max = 1000) => scrubText(value, max);
 
 /** Origin and path, plus the names of query parameters without their values. */
 function cleanUrl(raw: string) {
@@ -396,11 +563,20 @@ function describeElement(el: Element): string | null {
   return text ? `${kind} "${scrub(text, 80)}"` : control.id ? `${kind}#${control.id}` : kind;
 }
 
-function startCapture() {
+export function startCapture() {
+  // Mounting again after the last widget was destroyed starts a fresh recording.
+  if (installed) return;
+  for (const kind of KINDS) recording[kind] = true;
   const now = () => Date.now();
+  /** A listener that can be taken off again, under the kind it feeds. */
+  const listen = <T extends EventTarget>(target: T, type: string, fn: EventListener, kind: Kind, options?: AddEventListenerOptions | boolean) => {
+    target.addEventListener(type, fn, options);
+    hooks.push({ kind, off: () => target.removeEventListener(type, fn, options as EventListenerOptions) });
+  };
+
   for (const level of ["error", "warn"] as const) {
     const original = console[level];
-    console[level] = function (this: Console, ...args: unknown[]) {
+    const wrapper = function (this: Console, ...args: unknown[]) {
       try {
         const err = args.find((a): a is Error => a instanceof Error);
         keep("console", { at: now(), level, message: scrub(args.map(describeValue).join(" ")), stack: err?.stack ? scrub(err.stack, 1500) : undefined });
@@ -409,10 +585,18 @@ function startCapture() {
       }
       return original.apply(this, args);
     };
+    console[level] = wrapper;
+    hooks.push({
+      kind: "console",
+      off: () => {
+        if (console[level] === wrapper) console[level] = original;
+      },
+    });
   }
-  window.addEventListener(
+  listen(
+    window,
     "error",
-    (e) => {
+    ((e: ErrorEvent) => {
       const t = e.target as Element | null;
       if (t && t !== (window as unknown) && "tagName" in t) {
         const src = (t as HTMLImageElement).src || (t as HTMLLinkElement).href;
@@ -421,19 +605,25 @@ function startCapture() {
       }
       const stack = e.error instanceof Error && e.error.stack ? e.error.stack : e.filename ? `at ${cleanUrl(e.filename)}:${e.lineno}:${e.colno}` : undefined;
       keep("console", { at: now(), level: "error", message: scrub(e.message || "Uncaught error"), stack: stack ? scrub(stack, 1500) : undefined });
-    },
+    }) as EventListener,
+    "console",
     true,
   );
-  window.addEventListener("unhandledrejection", (e) => {
-    const reason = e.reason;
-    keep("console", { at: now(), level: "error", message: scrub(`Unhandled rejection: ${describeValue(reason)}`), stack: reason instanceof Error && reason.stack ? scrub(reason.stack, 1500) : undefined });
-  });
+  listen(
+    window,
+    "unhandledrejection",
+    ((e: PromiseRejectionEvent) => {
+      const reason = e.reason;
+      keep("console", { at: now(), level: "error", message: scrub(`Unhandled rejection: ${describeValue(reason)}`), stack: reason instanceof Error && reason.stack ? scrub(reason.stack, 1500) : undefined });
+    }) as EventListener,
+    "console",
+  );
 
   const record = (method: string, url: string, started: number, status: number | null, error?: string) =>
     keep("network", { at: now(), method: method.toUpperCase(), url: cleanUrl(url), status, ms: Math.round(performance.now() - started), error });
   const originalFetch = window.fetch;
   if (originalFetch) {
-    window.fetch = function (this: unknown, input: RequestInfo | URL, init?: RequestInit) {
+    const wrapper = function (this: unknown, input: RequestInfo | URL, init?: RequestInit) {
       const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
       const method = init?.method ?? (typeof input === "object" && "method" in input ? input.method : "GET");
       const call = originalFetch.call(this ?? window, input, init);
@@ -450,15 +640,22 @@ function startCapture() {
         },
       );
     } as typeof fetch;
+    window.fetch = wrapper;
+    hooks.push({
+      kind: "network",
+      off: () => {
+        if (window.fetch === wrapper) window.fetch = originalFetch;
+      },
+    });
   }
   const xhr = XMLHttpRequest.prototype;
   const open = xhr.open;
   const send = xhr.send;
-  xhr.open = function (this: XMLHttpRequest & { __issueit?: { method: string; url: string } }, method: string, url: string | URL, ...rest: unknown[]) {
+  const openWrapper = function (this: XMLHttpRequest & { __issueit?: { method: string; url: string } }, method: string, url: string | URL, ...rest: unknown[]) {
     this.__issueit = { method, url: String(url) };
     return (open as (...a: unknown[]) => void).call(this, method, url, ...rest);
   } as typeof xhr.open;
-  xhr.send = function (this: XMLHttpRequest & { __issueit?: { method: string; url: string } }, body?: Document | XMLHttpRequestBodyInit | null) {
+  const sendWrapper = function (this: XMLHttpRequest & { __issueit?: { method: string; url: string } }, body?: Document | XMLHttpRequestBodyInit | null) {
     const meta = this.__issueit;
     if (meta && !ownRequest(meta.url)) {
       const started = performance.now();
@@ -466,11 +663,20 @@ function startCapture() {
     }
     return send.call(this, body);
   };
+  xhr.open = openWrapper;
+  xhr.send = sendWrapper;
+  hooks.push({
+    kind: "network",
+    off: () => {
+      if (xhr.open === openWrapper) xhr.open = open;
+      if (xhr.send === sendWrapper) xhr.send = send;
+    },
+  });
 
   const step = (kind: StepItem["kind"], label: string | null) => label && keep("steps", { at: now(), kind, label });
   const outside = (e: Event) => e.target instanceof Element && !e.target.closest("[data-issueit]");
-  document.addEventListener("click", (e) => outside(e) && step("click", describeElement(e.target as Element)), true);
-  document.addEventListener("change", (e) => outside(e) && step("input", describeElement(e.target as Element)), true);
+  listen(document, "click", (e) => void (outside(e) && step("click", describeElement(e.target as Element))), "steps", true);
+  listen(document, "change", (e) => void (outside(e) && step("input", describeElement(e.target as Element))), "steps", true);
   let lastPage = "";
   const navigated = () => {
     const page = cleanUrl(location.href);
@@ -478,15 +684,23 @@ function startCapture() {
   };
   for (const name of ["pushState", "replaceState"] as const) {
     const original = history[name];
-    history[name] = function (this: History, ...args: Parameters<History["pushState"]>) {
+    const wrapper = function (this: History, ...args: Parameters<History["pushState"]>) {
       const result = original.apply(this, args);
       navigated();
       return result;
     };
+    history[name] = wrapper;
+    hooks.push({
+      kind: "steps",
+      off: () => {
+        if (history[name] === wrapper) history[name] = original;
+      },
+    });
   }
-  window.addEventListener("popstate", navigated);
-  window.addEventListener("hashchange", navigated);
+  listen(window, "popstate", navigated, "steps");
+  listen(window, "hashchange", navigated, "steps");
   navigated();
+  installed = true;
 }
 
 if (scriptEl?.dataset.capture !== "off") {
@@ -495,6 +709,52 @@ if (scriptEl?.dataset.capture !== "off") {
   } catch {
     // An unusual page shouldn't stop the widget itself from working.
   }
+}
+
+/**
+ * What each mounted widget's project asks to record. A page can carry two
+ * of them — a launcher and an inline form, or two different projects — so a
+ * kind is only given up when none of them wants it. Switching it off
+ * because the second one to answer was the stricter one would quietly empty
+ * the first one's reports.
+ */
+const asked = new Set<WidgetConfig>();
+
+/**
+ * A project's settings have arrived. Anything no project wants recorded is
+ * dropped and stops being recorded now, rather than being collected all
+ * session and quietly discarded at the end: the page gets its own fetch,
+ * console and history back, and nothing is held that was never going to be
+ * sent. A kind already given up can't come back — the wrappers are off —
+ * which is the right way round for settings that say "don't".
+ */
+export function honourSettings(w: WidgetConfig) {
+  if (!installed) return;
+  asked.add(w);
+  narrowToAsked();
+}
+
+/** Gives up every kind that none of the mounted projects asks for. */
+function narrowToAsked() {
+  const unwanted = KINDS.filter((kind) => recording[kind] && ![...asked].some((w) => w[settingFor[kind]]));
+  if (unwanted.length) stopRecording(unwanted);
+}
+
+/**
+ * A widget has gone, so its project no longer has a say. If it was the only
+ * one asking for a kind, that kind stops here; if it was the last widget
+ * altogether, destroy() turns everything off instead.
+ */
+export function forgetSettings(w: WidgetConfig | null) {
+  if (!installed || !w || !asked.delete(w) || !asked.size) return;
+  narrowToAsked();
+}
+
+/** Nothing is left mounted, so nothing needs recording. */
+export function stopEverything() {
+  stopRecording([...KINDS]);
+  asked.clear();
+  installed = false;
 }
 
 /** The recording, with times as milliseconds before now, filtered by what the project allows. */
@@ -521,7 +781,7 @@ function context() {
     screen: `${screen.width}×${screen.height}`,
     language: navigator.language,
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-    referrer: document.referrer || undefined,
+    referrer: document.referrer ? scrubLink(document.referrer, 500) : undefined,
   };
 }
 
@@ -551,6 +811,9 @@ function shortcutMatches(shortcut: string, e: KeyboardEvent) {
 const priorityNames = { low: "Low", medium: "Medium", high: "High", critical: "Critical" };
 const launcherHeight = { sm: 30, md: 36, lg: 44 };
 
+/** How many widgets are mounted right now, so the last one out can turn the lights off. */
+let live = 0;
+
 function mount(opts: MountOptions): Instance {
   const api = (opts.api ?? scriptOrigin).replace(/\/$/, "");
   const inline = opts.mode === "inline";
@@ -558,12 +821,13 @@ function mount(opts: MountOptions): Instance {
   host.setAttribute("data-issueit", "");
   if (inline && opts.target) opts.target.appendChild(host);
   else document.body.appendChild(host);
+  live++;
   const shadow = host.attachShadow({ mode: "open" });
   shadow.innerHTML = `<style>${STYLES}</style><div class="root${inline ? " inline" : ""}"></div>`;
   const root = shadow.querySelector(".root") as HTMLDivElement;
 
   let remote: Remote | null = opts.preview
-    ? { project: { id: opts.project, name: opts.preview.projectName }, widget: { ...DEFAULTS, ...opts.preview.config }, limits: { attachmentBytes: 10 * 1024 * 1024, attachmentsPerReport: 5 } }
+    ? { project: { id: opts.project, name: opts.preview.projectName }, widget: cleanConfig(opts.preview.config), limits: { attachmentBytes: 10 * 1024 * 1024, attachmentsPerReport: 5 } }
     : null;
   if (remote && opts.preview) remote.emails = { updates: !!opts.preview.emailUpdates };
   let isOpen = inline || opts.preview?.state === "form" || opts.preview?.state === "done";
@@ -592,6 +856,28 @@ function mount(opts: MountOptions): Instance {
     diagnostics: true,
   };
   let wasDuplicate = false;
+  let destroyed = false;
+  /** The settings this widget put to the recorder, withdrawn again when it goes. */
+  let asking: WidgetConfig | null = null;
+  /**
+   * One object URL per attached file, kept so a redraw doesn't mint another,
+   * and handed back as soon as the file is removed, sent or the widget goes.
+   * An unrevoked object URL holds the whole file in memory for the life of
+   * the document.
+   */
+  const previews = new Map<File, string>();
+  const previewUrl = (f: File) => {
+    let url = previews.get(f);
+    if (!url) previews.set(f, (url = URL.createObjectURL(f)));
+    return url;
+  };
+  const releasePreviews = (keep: File[]) => {
+    for (const [f, url] of previews) {
+      if (keep.includes(f)) continue;
+      URL.revokeObjectURL(url);
+      previews.delete(f);
+    }
+  };
   let launcherEl: HTMLButtonElement | null = null;
   let closeTimer: number | null = null;
   const media = matchMedia("(prefers-color-scheme: dark)");
@@ -622,6 +908,7 @@ function mount(opts: MountOptions): Instance {
 
   function render() {
     if (!remote) return;
+    releasePreviews(files);
     const w = remote.widget;
     root.dataset.theme = theme();
     root.dataset.shadow = w.shadow;
@@ -707,7 +994,7 @@ function mount(opts: MountOptions): Instance {
             ${w.allowAttachments ? `<button type="button" class="btn" data-act="attach" ${files.length >= maxFiles ? "disabled" : ""}>${svg("clip", 14)}Attach file</button><input type="file" hidden multiple accept="image/*,video/mp4,video/webm,application/pdf,text/plain,.log,.txt,.json,.zip">` : ""}
             ${canShot ? `<button type="button" class="btn" data-act="shot" ${files.length >= maxFiles ? "disabled" : ""}>${svg("camera", 14)}Screenshot</button>` : ""}
           </div>
-          ${files.length ? `<div class="files">${files.map((f, i) => `<div class="file">${f.type.startsWith("image/") ? `<img alt="" src="${URL.createObjectURL(f)}">` : ""}<span>${esc(f.name)} · ${formatSize(f.size)}</span><button type="button" class="btn quiet icon" data-remove="${i}" aria-label="Remove ${esc(f.name)}">${svg("close", 13)}</button></div>`).join("")}</div>` : ""}`
+          ${files.length ? `<div class="files">${files.map((f, i) => `<div class="file">${f.type.startsWith("image/") ? `<img alt="" src="${previewUrl(f)}">` : ""}<span>${esc(f.name)} · ${formatSize(f.size)}</span><button type="button" class="btn quiet icon" data-remove="${i}" aria-label="Remove ${esc(f.name)}">${svg("close", 13)}</button></div>`).join("")}</div>` : ""}`
         : "";
     const emailOnPage = !!identity.email || w.collectEmail !== "off";
     const updates =
@@ -718,6 +1005,7 @@ function mount(opts: MountOptions): Instance {
       ? `<label class="field check"><input type="checkbox" name="diagnostics" ${draft.diagnostics ? "checked" : ""}><span>Include recent errors and steps from this page</span></label>`
       : "";
     const note = opts.preview ? "Preview - nothing is sent." : w.footerNote;
+    // Already narrowed to http(s) by cleanConfig; esc() is for the markup, not the scheme.
     const privacy = w.privacyUrl ? ` <a href="${esc(w.privacyUrl)}" target="_blank" rel="noopener noreferrer">Privacy</a>` : "";
     return `
       <div class="head"><div class="head-text">${brandMark(w)}<h2 class="title">${esc(w.title)}</h2></div><button type="button" class="btn quiet icon" data-act="close" aria-label="Close">${svg("close", 15)}</button></div>
@@ -790,6 +1078,14 @@ function mount(opts: MountOptions): Instance {
   function addFiles(list: File[]) {
     if (!remote) return;
     const max = Math.min(remote.widget.maxFiles, remote.limits.attachmentsPerReport);
+    /**
+     * Every file under the limit can still come to more than the request is
+     * allowed to be, so the total is checked as well. The server refuses an
+     * oversized body either way; this is so the answer is a sentence about
+     * the file rather than a failed send.
+     */
+    const together = max * remote.limits.attachmentBytes;
+    let total = files.reduce((n, f) => n + f.size, 0);
     error = "";
     for (const f of list) {
       if (files.length >= max) {
@@ -800,6 +1096,11 @@ function mount(opts: MountOptions): Instance {
         error = `${f.name} is larger than ${formatSize(remote.limits.attachmentBytes)}.`;
         continue;
       }
+      if (total + f.size > together) {
+        error = `Those come to more than ${formatSize(together)} altogether.`;
+        break;
+      }
+      total += f.size;
       files.push(f);
     }
     render();
@@ -889,7 +1190,7 @@ function mount(opts: MountOptions): Instance {
         name: String(data.get("name") ?? "").trim() || identity.name || undefined,
         priority: w.askPriority ? String(data.get("priority") ?? w.defaultPriority) : undefined,
         environment: w.environment || undefined,
-        page_url: w.sendContext ? location.href.slice(0, 2000) : undefined,
+        page_url: w.sendContext ? scrubLink(location.href) : undefined,
         source: opts.source ?? "widget",
         // The time zone stays even without the rest, so reports can be placed on the map.
         context: w.sendContext ? context() : { timezone: Intl.DateTimeFormat().resolvedOptions().timeZone },
@@ -924,6 +1225,7 @@ function mount(opts: MountOptions): Instance {
       state = "done";
       wasDuplicate = !!json?.duplicate;
       files = [];
+      releasePreviews([]);
       if (w.autoCloseSeconds && !inline) closeTimer = window.setTimeout(close, w.autoCloseSeconds * 1000);
     } catch (err) {
       state = "form";
@@ -972,8 +1274,9 @@ function mount(opts: MountOptions): Instance {
   else {
     fetch(`${api}/v1/${encodeURIComponent(opts.project)}/widget`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
-      .then((json: Remote) => {
-        remote = { ...json, widget: { ...DEFAULTS, ...json.widget } };
+      .then((json: unknown) => {
+        remote = cleanRemote(json, opts.project);
+        honourSettings((asking = remote.widget));
         render();
       })
       .catch(() => {
@@ -986,7 +1289,7 @@ function mount(opts: MountOptions): Instance {
     open,
     close,
     update(config, extra) {
-      if (remote) remote = { ...remote, widget: { ...DEFAULTS, ...config }, ...(extra?.emailUpdates !== undefined ? { emails: { updates: extra.emailUpdates } } : {}) };
+      if (remote) remote = { ...remote, widget: cleanConfig(config), ...(extra?.emailUpdates !== undefined ? { emails: { updates: extra.emailUpdates } } : {}) };
       render();
     },
     /** Dashboard preview only: show the launcher alone, the form, or the thank-you. */
@@ -997,11 +1300,28 @@ function mount(opts: MountOptions): Instance {
       error = "";
       render();
     },
+    /**
+     * Everything this widget took, given back: its listeners, the object
+     * URLs holding its attachments in memory, and — once nothing is mounted
+     * any more — the recorder's wrappers around the page's own fetch,
+     * console and history. Mounting and destroying repeatedly mustn't leave
+     * a pile of either behind.
+     */
     destroy() {
+      if (destroyed) return;
+      destroyed = true;
       if (closeTimer) window.clearTimeout(closeTimer);
       document.removeEventListener("keydown", onDocKey);
       media.removeEventListener("change", render);
+      releasePreviews([]);
+      files = [];
       host.remove();
+      forgetSettings(asking);
+      asking = null;
+      if (--live <= 0) {
+        live = 0;
+        stopEverything();
+      }
     },
   };
 }
@@ -1015,15 +1335,35 @@ function contrast(hex: string) {
 
 let primary: Instance | null = null;
 
+/**
+ * What any script on the host page can set. Scripts there already share the
+ * page's trust boundary, so this isn't a wall — it's a shape, so that what
+ * arrives is what the API accepts and a passing array or a circular object
+ * can't cost someone their report. Nothing set here is evidence of who
+ * anybody is: the dashboard shows it as what the page said.
+ */
 const Issueit = {
   mount,
   open: () => primary?.open(),
   close: () => primary?.close(),
   identify(user: { email?: string; name?: string }) {
-    identity = { ...identity, ...user };
+    const email = maybeText(user?.email, 254)?.trim();
+    const name = maybeText(user?.name, 80)?.trim();
+    identity = { email: email || identity.email, name: name || identity.name };
   },
   setMetadata(metadata: Record<string, unknown>) {
-    extraMetadata = { ...extraMetadata, ...metadata };
+    const next: Record<string, unknown> = { ...extraMetadata };
+    for (const [key, value] of Object.entries(metadata ?? {})) {
+      if (value === undefined || typeof value === "function" || typeof value === "symbol") continue;
+      next[key.slice(0, 100)] = typeof value === "string" ? value.slice(0, 2000) : value;
+    }
+    try {
+      // The API refuses metadata over 16 KB, and the report matters more than the extra key.
+      if (JSON.stringify(next).length <= 16_384) extraMetadata = next;
+      else console.warn("[Issueit] That metadata would be over 16 KB, so it was left as it was.");
+    } catch {
+      console.warn("[Issueit] That metadata can't be sent as JSON, so it was left as it was.");
+    }
   },
 };
 
