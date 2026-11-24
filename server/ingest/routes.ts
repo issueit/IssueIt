@@ -258,8 +258,15 @@ async function authenticate(c: Context, project: Project, auth: string | undefin
   }
   if (auth) {
     if (!token.startsWith("sk_")) throw new AppError(401, "invalid_key", "That isn't a secret key. Project ids don't go in the Authorization header.");
-    const key = await db.query.apiKeys.findFirst({ where: and(eq(schema.apiKeys.keyHash, sha256(token)), isNull(schema.apiKeys.revokedAt)) });
-    if (!key || key.projectId !== project.id) throw new AppError(401, "invalid_key", "That secret key isn't valid for this project.");
+    const key = await db.query.apiKeys.findFirst({ where: eq(schema.apiKeys.keyHash, sha256(token)) });
+    /**
+     * Each refusal says which mistake it is. Whoever sees these holds the
+     * key, so naming the project it belongs to tells them nothing new — and
+     * "invalid" alone, in a game's output window, left people guessing.
+     */
+    if (!key) throw new AppError(401, "invalid_key", `That secret key doesn't exist${/[^A-Za-z0-9_]/.test(token) ? ": it contains characters a key never has, so it may have been copied with something extra" : ". It may have been rotated, or not copied whole"}.`);
+    if (key.revokedAt) throw new AppError(401, "invalid_key", "That secret key was revoked or replaced. Copy the current one from the project's API keys.");
+    if (key.projectId !== project.id) throw new AppError(401, "invalid_key", `That secret key belongs to another project (${key.projectId}), not ${project.id}. Use it with that project's address.`);
     // A secret key in a browser is a leaked key.
     if (origin && origin !== appOrigin) throw new AppError(400, "key_in_browser", "Secret keys must only be used from your server. Use the project id alone in browsers.");
     if (!key.lastUsedAt || Date.now() - key.lastUsedAt.getTime() > 60_000) {
@@ -275,12 +282,25 @@ async function authenticate(c: Context, project: Project, auth: string | undefin
   return { viaKeyId: null, viaBrowserToken: false };
 }
 
-/** A channel named in an address or a report, which must be one of the project's. */
+/**
+ * A channel named in an address or a report, which must be one of the
+ * project's. Matched loosely — "BugReports", "bug_reports" and "Bug Reports"
+ * all find "bug-reports" — since a game's own name for the channel is what
+ * ends up typed into the address.
+ */
 function channelFor(project: Project, slug: string | null | undefined) {
-  const wanted = (slug ?? "").trim().toLowerCase();
+  const loose = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const wanted = loose((slug ?? "").trim());
   if (!wanted) return null;
-  const channel = project.channels.find((ch) => ch.slug === wanted);
-  if (!channel) throw new AppError(404, "unknown_channel", `This project has no channel called "${wanted.slice(0, 40)}". Add it in the project's Roblox settings, or check the address.`);
+  const channel = project.channels.find((ch) => loose(ch.slug) === wanted || loose(ch.name) === wanted);
+  if (!channel) {
+    const known = project.channels.map((ch) => ch.slug);
+    throw new AppError(
+      404,
+      "unknown_channel",
+      `This project has no channel called "${String(slug).slice(0, 40)}". ${known.length ? `Its channels are: ${known.join(", ")}.` : "It has no channels yet; add them in the project's Roblox settings."}`,
+    );
+  }
   return channel;
 }
 

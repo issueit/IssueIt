@@ -920,6 +920,17 @@ function Roblox() {
           If it leaks, rotate it under <strong>API keys</strong>; the old one stops working at once.
         </p>
       </Callout>
+      <H3>Keeping the key in Roblox's secrets</H3>
+      <p>
+        Roblox ties each secret to the domain it may be sent to, and refuses it anywhere else with <em>“This secret cannot be used for a specified domain”</em>. Give it the domain of the address
+        it goes in, <C>{urls.drop.replace(/^https?:\/\//, "")}</C>, or a wildcard that covers it. In the Creator Dashboard that's the secret's{" "}
+        <strong>Domain</strong> field; for Studio, Game Settings › Security › Secrets, as a name, the key and the domain:
+      </p>
+      <Code lang="json" code={`{ "issueit": ["sk_live_…", "${urls.drop.replace(/^https?:\/\//, "")}"] }`} />
+      <p>
+        A <C>Secret</C> can't be joined to a string, so build the address with its own methods:{" "}
+        <C>{`secret:AddPrefix("${urls.drop}/v1/prj_abc123/webhook/"):AddSuffix("/bug-reports")`}</C>.
+      </p>
 
       <H2>Change the webhook address</H2>
       <Endpoint method="POST" path="/v1/{project_id}/webhook/{secret_key}" auth="The secret key in the path" />
