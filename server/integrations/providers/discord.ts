@@ -57,10 +57,26 @@ export const discord: Provider = {
   },
   async deliver({ report, connection, isTest }) {
     const webhookUrl = String(connection!.credentials.webhookUrl);
-    const { data, status } = await request("Discord", `${webhookUrl}?wait=true`, {
-      method: "POST",
-      thing: "webhook",
-      json: {
+    const post = (json: Record<string, unknown>) => request("Discord", `${webhookUrl}?wait=true`, { method: "POST", thing: "webhook", json });
+    /**
+     * A report that arrived with a design of its own — a Discord-style post
+     * from a game, or `discord` sent through the API — goes on looking the
+     * way its sender made it. Mentions stay off: a post relayed by Issueit
+     * can't ping a server. If Discord refuses the design, the report still
+     * arrives, in Issueit's own layout.
+     */
+    let sent: Awaited<ReturnType<typeof post>> | null = null;
+    if (report.discord && !isTest) {
+      const { username, avatar_url, content, embeds } = report.discord;
+      try {
+        sent = await post({ username: username || "Issueit", ...(avatar_url ? { avatar_url } : {}), ...(content ? { content } : {}), embeds, allowed_mentions: { parse: [] } });
+      } catch (err) {
+        if (!(err instanceof IntegrationError) || err.status !== 400) throw err;
+      }
+    }
+    const { data, status } =
+      sent ??
+      (await post({
         username: "Issueit",
         allowed_mentions: { parse: [] },
         embeds: [
@@ -76,8 +92,7 @@ export const discord: Provider = {
             timestamp: report.createdAt,
           },
         ],
-      },
-    });
+      }));
     const guild = data?.guild_id ?? connection!.account.extra?.guildId;
     const externalUrl = guild && data?.channel_id ? `https://discord.com/channels/${guild}/${data.channel_id}/${data.id}` : undefined;
     return { externalId: data?.id, externalUrl, responseStatus: status };

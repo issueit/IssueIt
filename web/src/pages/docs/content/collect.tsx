@@ -967,8 +967,10 @@ HttpService:PostAsync(WEBHOOK, HttpService:JSONEncode({
         ]}
       />
       <p>
-        Reports arrive in Discord formatted by Issueit, not as your original embed: the same title, description and fields, plus a link to the report. A post that is already an Issueit report
-        (it has a <C>title</C>) is filed as it stands.
+        Discord destinations get the post <strong>as you designed it</strong>: the same author line, title, description, colour, fields, footer, thumbnail, image and timestamp, posted
+        under your <C>username</C> and <C>avatar_url</C>. Mentions are switched off, so a relayed post can't ping a server. Other tools — GitHub, Linear, Slack — get the same content as
+        readable text. If Discord ever refuses the design, the report still arrives, in Issueit's own layout. A post that is already an Issueit report (it has a <C>title</C>) is filed as
+        it stands.
       </p>
       <Params
         rows={[
@@ -1051,6 +1053,9 @@ Issueit.init({
           { name: "channel", type: "string", children: "The project channel reports go to, unless one names another." },
           { name: "errorChannel", type: "string", children: <>The channel for captured script errors. Defaults to <C>channel</C>.</> },
           { name: "playerChannel", type: "string", children: <>The channel for reports players send. Defaults to <C>channel</C>.</> },
+          { name: "embeds", type: "boolean", children: <>Give every report a Discord embed like a game's own webhook: the player as the author, the place, version and server in the footer, and the time. Default <C>false</C>.</> },
+          { name: "embedUsername", type: "string", children: "The name those messages post under in Discord." },
+          { name: "embedAvatar", type: "string", children: "An image address for that name's avatar." },
           { name: "beforeSend", type: "function", children: "Gets each report before it's sent; return it, changed or not, or nil to drop it." },
         ]}
       />
@@ -1068,6 +1073,29 @@ Issueit.init({
 
 local ok, answer = Issueit.reportAsync({ title = "..." }) -- waits for the answer`}
       />
+      <H3>How it looks in Discord</H3>
+      <p>
+        Give a report an <C>embed</C> and Discord destinations show it that way. Anything you leave out is filled in: the player as the author, the place, version and server in the footer,
+        the time, and a colour from the priority. Colours can be a <C>Color3</C>, and fields a plain table.
+      </p>
+      <Code
+        lang="lua"
+        code={`Issueit.report({
+	title = "🍔 Bug report",
+	description = "Patties get stuck under mats and mold and cannot be grabbed",
+	player = player,
+	channel = "bug-reports",
+	embed = {
+		color = Color3.fromRGB(88, 101, 242),
+		fields = { Cash = "$205M", Rebirths = 1 },
+		thumbnail = { url = "https://…" },
+	},
+})`}
+      />
+      <p>
+        From the intake API it's a <C>discord</C> field holding a Discord message — <C>username</C>, <C>avatar_url</C>, <C>content</C> and <C>embeds</C> — kept within Discord's limits
+        when it arrives.
+      </p>
       <H3>Reports from players</H3>
       <p>Behind your own button, in a LocalScript. The server adds who sent it and from which server, checks and trims what the client sent, and limits how often one player can.</p>
       <Code

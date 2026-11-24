@@ -1,4 +1,4 @@
-import type { ConnectionAccount, Diagnostics, Priority, ReportContext, ReportStatus, WebhookEvent } from "../db/schema";
+import type { ConnectionAccount, Diagnostics, DiscordMessage, Priority, ReportContext, ReportStatus, WebhookEvent } from "../db/schema";
 
 /** Provider ids are stable strings stored on connections and destinations. */
 export type ProviderId = string;
@@ -48,6 +48,8 @@ export type ReportPayload = {
   environment: string | null;
   /** Which of the project's channels it was sent to, if any. */
   channel?: string | null;
+  /** How it should look in Discord, as its sender designed it. */
+  discord?: DiscordMessage | null;
   pageUrl: string | null;
   browser: string | null;
   context: ReportContext;

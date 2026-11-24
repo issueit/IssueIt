@@ -637,6 +637,8 @@ export const reports = pgTable(
     environment: text("environment"),
     /** Which of the project's channels it was sent to, if any. Decides which destinations get it. */
     channel: text("channel"),
+    /** How it should look in Discord, as its sender designed it. See ingest/webhook.ts. */
+    discord: jsonb("discord").$type<DiscordMessage>(),
     pageUrl: text("page_url"),
     browser: text("browser"),
     context: jsonb("context").$type<ReportContext>().notNull().default({}),
@@ -858,6 +860,22 @@ export const connections = pgTable(
   },
   (t) => [index("connections_org_idx").on(t.orgId)],
 );
+
+export type DiscordEmbed = {
+  title?: string;
+  description?: string;
+  url?: string;
+  color?: number;
+  timestamp?: string;
+  author?: { name: string; url?: string; icon_url?: string };
+  footer?: { text: string; icon_url?: string };
+  thumbnail?: { url: string };
+  image?: { url: string };
+  fields?: Array<{ name: string; value: string; inline?: boolean }>;
+};
+
+/** How a report should look in Discord: the message as its sender designed it. */
+export type DiscordMessage = { username?: string; avatar_url?: string; content?: string; embeds: DiscordEmbed[] };
 
 /** A named way into a project. The slug is in the address, so it never changes; the name can. */
 export type ProjectChannel = {

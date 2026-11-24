@@ -191,6 +191,60 @@ local function work()
 	end)
 end
 
+local priorityColours = { critical = 0xE74C3C, high = 0xE67E22, medium = 0x5865F2, low = 0x95A5A6 }
+
+--- A Color3, a number like 0xE67E22, or nothing.
+local function colourOf(c)
+	if typeof(c) == "Color3" then
+		return math.floor(c.R * 255 + 0.5) * 65536 + math.floor(c.G * 255 + 0.5) * 256 + math.floor(c.B * 255 + 0.5)
+	end
+	if type(c) == "number" then
+		return math.clamp(math.floor(c), 0, 0xFFFFFF)
+	end
+	return nil
+end
+
+--[[
+	How the report looks in Discord: a Discord embed, with anything left out
+	filled in the way a game's own webhook usually does it — the player as
+	the author, the place, version and server in the footer, and the time.
+	`fields` can be a list of { name, value, inline } or a plain table:
+	{ Cash = "$205M", Rebirths = 1 }.
+]]
+local function discordLook(payload, report, player)
+	local embed = {}
+	if type(report.embed) == "table" then
+		for k, v in report.embed do
+			embed[k] = v
+		end
+	end
+	embed.title = embed.title or payload.title
+	embed.description = embed.description or payload.description
+	embed.color = colourOf(embed.color) or priorityColours[payload.priority or "medium"] or priorityColours.medium
+	if type(embed.fields) == "table" and #embed.fields == 0 and next(embed.fields) ~= nil then
+		local list = {}
+		for name, value in embed.fields do
+			table.insert(list, { name = tostring(name), value = tostring(value), inline = true })
+		end
+		table.sort(list, function(a, b)
+			return a.name < b.name
+		end)
+		embed.fields = list
+	end
+	if player and embed.author == nil then
+		embed.author = {
+			name = ("%s (@%s) • %d"):format(player.DisplayName, player.Name, player.UserId),
+			url = ("https://www.roblox.com/users/%d/profile"):format(player.UserId),
+		}
+	end
+	if embed.footer == nil then
+		local server = if RunService:IsStudio() then "Studio" else game.JobId:sub(1, 8)
+		embed.footer = { text = ("Place %d v%d • Server %s"):format(game.PlaceId, game.PlaceVersion, server) }
+	end
+	embed.timestamp = embed.timestamp or DateTime.now():ToIsoDate()
+	return { username = report.username or options.embedUsername, avatar_url = report.avatarUrl or options.embedAvatar, embeds = { embed } }
+end
+
 --- Turns what the caller wrote into what the intake API reads.
 local function build(report)
 	local metadata = serverDetails()
@@ -219,6 +273,9 @@ local function build(report)
 		diagnostics = { console = report.logs or (if report.attachLogs == false then {} else recentLogs()) },
 		idempotency_key = HttpService:GenerateGUID(false),
 	}
+	if report.embed or options.embeds then
+		payload.discord = discordLook(payload, report, player)
+	end
 	if options.beforeSend then
 		return options.beforeSend(payload)
 	end
@@ -248,6 +305,11 @@ end
 		player = player,            -- optional: who it happened to
 		fingerprint = "shop:receipt",-- optional: reports with the same one are grouped
 		channel = "shop",           -- optional: one of the project's channels, which decides where it goes
+		embed = {                   -- optional: how it looks in Discord. Anything left out is filled in.
+			color = Color3.fromRGB(230, 126, 34),
+			fields = { Product = "Golden Sword", Robux = 499 },
+			thumbnail = { url = "https://…" },
+		},
 		metadata = { product = 12345 },
 	})
 ]]
@@ -390,6 +452,10 @@ end
 	channel         the project channel reports go to unless they name another. Default: none.
 	errorChannel    the channel for captured script errors, e.g. "errors". Default: channel.
 	playerChannel   the channel for reports players send, e.g. "player-reports". Default: channel.
+	embeds          give every report a Discord embed like a game's own webhook: the player as
+	                author, the place, version and server in the footer. Default false.
+	embedUsername   the bot name those messages post as in Discord. Default "Issueit".
+	embedAvatar     an image URL for that bot's avatar.
 	beforeSend      function(payload) returning the payload to send, or nil to drop it.
 ]]
 function Issueit.init(config)
@@ -419,6 +485,9 @@ function Issueit.init(config)
 		clientErrorLimit = { count = 5, per = 60 },
 		beforeSend = config.beforeSend,
 		channel = config.channel,
+		embeds = config.embeds == true,
+		embedUsername = config.embedUsername,
+		embedAvatar = config.embedAvatar,
 		errorChannel = config.errorChannel or config.channel,
 		playerChannel = config.playerChannel or config.channel,
 	}

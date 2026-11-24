@@ -26,7 +26,7 @@ import { isBrowserToken, MAX_TOKEN_SECONDS, mintBrowserToken, readBrowserToken }
 import { contentHashOf, isBlocked, scoreSpam, spamCheckEnabled, velocityFor, type SpamVerdict } from "./protection";
 import { matchesRule } from "../delivery/queue";
 import { getProvider } from "../integrations";
-import { fromDiscord, isRobloxAgent, looksLikeDiscord, whyNoKey, withDefaults, type HookDefaults } from "./webhook";
+import { cleanDiscordMessage, fromDiscord, isRobloxAgent, looksLikeDiscord, whyNoKey, withDefaults, type HookDefaults } from "./webhook";
 
 /**
  * The ingestion API: POST /v1/{project_id}/reports. Kept apart from the
@@ -73,6 +73,8 @@ const reportInput = z.object({
   environment: shortText(40),
   /** One of the project's channels, which decides the destinations. The webhook address can carry it instead. */
   channel: shortText(40),
+  /** How the report should look in Discord: a Discord message, { username, avatar_url, content, embeds }. Cleaned in webhook.ts. */
+  discord: z.unknown().optional().nullable(),
   /** Which build this happened on, so a minified stack can be symbolicated. */
   release: shortText(80),
   /** Your own key for this submission; sending it twice files one report. */
@@ -593,6 +595,7 @@ async function fileReport(c: Context, project: Project, caller: Caller, read: Re
           source,
           environment: input.environment || null,
           channel,
+          discord: cleanDiscordMessage(input.discord),
           release: input.release || null,
           idempotencyKey,
           pageUrl,

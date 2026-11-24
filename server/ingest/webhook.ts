@@ -1,3 +1,4 @@
+import type { DiscordEmbed, DiscordMessage } from "../db/schema";
 /**
  * Discord-shaped webhooks, turned into reports.
  *
@@ -109,7 +110,9 @@ export function fromDiscord(raw: Record<string, unknown>, defaults: HookDefaults
     environment: settings.environment || defaults.environment || undefined,
     source: defaults.source,
     channel: defaults.channel,
-    name: username || undefined,
+    name: (lead && plainLine(text(lead.author?.name)).slice(0, 80)) || username || undefined,
+    // The post as designed, so Discord destinations can send it on looking the same.
+    discord: raw,
     page_url: /^https?:\/\//i.test(leadUrl) ? leadUrl.slice(0, 2000) : undefined,
     metadata,
   };
@@ -141,4 +144,63 @@ export function whyNoKey(token: string): string {
   if (odd.length) return `It contains ${odd.map((ch) => JSON.stringify(ch)).join(", ")}, which a key never does, so something extra was copied with it.`;
   if (token.length < 30) return `It's only ${token.length} characters long, so it was probably cut off when it was copied.`;
   return "It may have been rotated: copy the current one from the project's API keys.";
+}
+
+/* ------------------------------------------------------------ the post's own look */
+
+export type { DiscordEmbed, DiscordMessage };
+
+const cut = (v: unknown, max: number) => {
+  const s = text(v);
+  return s ? (s.length > max ? `${s.slice(0, max - 1)}…` : s) : undefined;
+};
+const link = (v: unknown) => {
+  const s = text(v);
+  return /^https?:\/\/\S+$/i.test(s) && s.length <= 2000 ? s : undefined;
+};
+const prune = <T extends Record<string, unknown>>(o: T) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined && v !== null)) as T;
+
+/**
+ * The sender's design, kept within Discord's own limits so that sending it
+ * on can't be refused for size: titles 256, descriptions 4096, 25 fields,
+ * 10 embeds, 6000 characters in all. Links must be http(s). Anything else
+ * is dropped rather than refused — the report matters more than its looks.
+ */
+export function cleanDiscordMessage(raw: unknown): DiscordMessage | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const o = raw as Record<string, unknown>;
+  let budget = 6000;
+  const take = (v: unknown, max: number) => {
+    const s = cut(v, Math.min(max, budget));
+    if (s) budget -= s.length;
+    return budget > 0 ? s : undefined;
+  };
+  const embeds: DiscordEmbed[] = [];
+  for (const e of (Array.isArray(o.embeds) ? o.embeds : []).slice(0, 10)) {
+    if (!e || typeof e !== "object") continue;
+    const r = e as Record<string, any>;
+    const color = typeof r.color === "number" && Number.isInteger(r.color) && r.color >= 0 && r.color <= 0xffffff ? r.color : undefined;
+    const timestamp = typeof r.timestamp === "string" && !Number.isNaN(Date.parse(r.timestamp)) ? new Date(r.timestamp).toISOString() : undefined;
+    const authorName = take(r.author?.name, 256);
+    const footerText = take(r.footer?.text, 2048);
+    const fields = (Array.isArray(r.fields) ? r.fields : [])
+      .slice(0, 25)
+      .map((f: any) => ({ name: take(f?.name, 256), value: take(f?.value, 1024), inline: f?.inline === true ? true : undefined }))
+      .filter((f: { name?: string; value?: string }) => f.name && f.value) as DiscordEmbed["fields"];
+    const embed = prune({
+      title: take(r.title, 256),
+      description: take(r.description, 4096),
+      url: link(r.url),
+      color,
+      timestamp,
+      author: authorName ? prune({ name: authorName, url: link(r.author?.url), icon_url: link(r.author?.icon_url) }) : undefined,
+      footer: footerText ? prune({ text: footerText, icon_url: link(r.footer?.icon_url) }) : undefined,
+      thumbnail: link(r.thumbnail?.url) ? { url: link(r.thumbnail.url)! } : undefined,
+      image: link(r.image?.url) ? { url: link(r.image.url)! } : undefined,
+      fields: fields?.length ? fields : undefined,
+    });
+    if (Object.keys(embed).length) embeds.push(embed);
+  }
+  const message = prune({ username: cut(o.username, 80), avatar_url: link(o.avatar_url), content: take(o.content, 2000), embeds });
+  return message.embeds.length || message.content ? message : null;
 }
