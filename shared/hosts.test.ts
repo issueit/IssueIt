@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { isAppPath, redirectFor } from "./hosts";
 
-const split = { app: "https://dash.issueit.app", marketing: "https://issueit.app" };
+const split = { app: "https://dash.issueit.app", marketing: "https://issueit.app", others: ["https://drop.issueit.app", "https://cdn.issueit.app"] };
 
 describe("isAppPath", () => {
   it("knows the dashboard's pages, and not their lookalikes", () => {
@@ -38,6 +38,11 @@ describe("redirectFor", () => {
     expect(redirectFor(split, "issueit.app", "/pricing")).toBeNull();
     expect(redirectFor(split, "dash.issueit.app", "/docs/collect/roblox")).toBeNull();
     expect(redirectFor(split, "docs.issueit.app", "/dashboard")).toBeNull();
+  });
+
+  it("leaves hosts it doesn't know alone, so a rewritten Host header can't loop", () => {
+    expect(redirectFor(split, "app:8380", "/dashboard")).toBeNull();
+    expect(redirectFor(split, "192.168.0.62:8380", "/")).toBeNull();
   });
 
   it("does nothing on a single-origin install", () => {

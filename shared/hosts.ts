@@ -33,7 +33,12 @@ export const isAppPath = (path: string) => appPrefixes.some((p) => path === p ||
 /** Documentation answers on any host; it has its own subdomain and its own redirect. */
 const isDocsPath = (path: string) => path === "/docs" || path.startsWith("/docs/");
 
-export type Hosts = { app: string; marketing: string };
+export type Hosts = {
+  app: string;
+  marketing: string;
+  /** The install's other public addresses (intake, CDN): redirected from, never to. */
+  others?: string[];
+};
 
 const hostOf = (url: string) => {
   try {
@@ -55,6 +60,11 @@ export function redirectFor(hosts: Hosts, host: string, path: string, rest = "")
   if (!app || !marketing || app === marketing) return null;
   // The documentation subdomain routes everything as documentation.
   if (here.startsWith("docs.")) return null;
+  // Only the install's own addresses. Anything else — a LAN address, a
+  // proxy that rewrote the Host header — is served as it always was, so a
+  // misreported host can never turn into a redirect loop.
+  const known = [app, marketing, `www.${marketing}`, ...(hosts.others ?? []).map(hostOf)];
+  if (!known.includes(here)) return null;
   if (isAppPath(path)) return here === app ? null : `${hosts.app}${path}${rest}`;
   if (here === marketing || here === `www.${marketing}` || isDocsPath(path)) return null;
   // The dashboard's own front door is the dashboard, not the marketing home.

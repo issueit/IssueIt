@@ -57,7 +57,7 @@ const llmRoots = distRoots.map((root) => path.join(root, "llm"));
  * between them can leave for the right host without asking the server.
  * Read synchronously by web/src/lib/hosts.ts before the router starts.
  */
-const hostsMeta = `<meta name="issueit-hosts" content="${JSON.stringify({ app: config.appUrl, marketing: config.marketingUrl }).replace(/"/g, "&quot;")}">`;
+const hostsMeta = `<meta name="issueit-hosts" content="${JSON.stringify({ app: config.appUrl, marketing: config.marketingUrl, others: [config.dropUrl, config.cdnUrl] }).replace(/"/g, "&quot;")}">`;
 const indexHtml = webRoot ? fs.readFileSync(path.join(webRoot, "index.html"), "utf8").replace("</head>", `${hostsMeta}</head>`) : null;
 
 const DASHBOARD_CSP = [
@@ -272,7 +272,7 @@ export function createApp() {
       await next();
       if (c.res.status === 200) c.header("cache-control", "public, max-age=31536000, immutable");
     });
-    const hosts = { app: config.appUrl, marketing: config.marketingUrl };
+    const hosts = { app: config.appUrl, marketing: config.marketingUrl, others: [config.dropUrl, config.cdnUrl] };
     const spa = (c: Context) => {
       /**
        * The marketing site and the dashboard have a host each when they are
