@@ -80,7 +80,7 @@ function NavItem({
 }) {
   const body = (
     <>
-      <IconC size={17} />
+      <IconC size={20} />
       <span className="nav-item__label">{label}</span>
       {count ? (
         <span className="nav-item__count tabular" aria-label={`${count} new`}>
@@ -153,7 +153,7 @@ function Sidebar({ collapsed }: { collapsed: boolean }) {
             <button type="button" className="org-switch" aria-label={`Organisation: ${org.name}`}>
               <span className="org-switch__mark">{org.name.charAt(0).toUpperCase()}</span>
               <span className="org-switch__name">{org.name}</span>
-              <AltArrowDownIcon size={13} className="text-text-3 shrink-0" />
+              <AltArrowDownIcon size={14} className="text-text-3 shrink-0" />
             </button>
           }
           items={[

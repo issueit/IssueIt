@@ -26,6 +26,7 @@ import { isBrowserToken, MAX_TOKEN_SECONDS, mintBrowserToken, readBrowserToken }
 import { contentHashOf, isBlocked, scoreSpam, spamCheckEnabled, velocityFor, type SpamVerdict } from "./protection";
 import { matchesRule } from "../delivery/queue";
 import { getProvider } from "../integrations";
+import { fromDiscord, isRobloxAgent, looksLikeDiscord, withDefaults, type HookDefaults } from "./webhook";
 
 /**
  * The ingestion API: POST /v1/{project_id}/reports. Kept apart from the
@@ -122,6 +123,20 @@ function cors(c: Context) {
   c.header("access-control-max-age", "86400");
 }
 
+type Project = typeof schema.projects.$inferSelect;
+type Caller = { viaKeyId: string | null; viaBrowserToken: boolean };
+type Filed = { status: 200 | 201; body: Record<string, unknown> };
+type Body = { input: z.infer<typeof reportInput>; files: RawFile[] };
+/** Read once the request is past the limits, so a refused caller costs no parsing. */
+type Reader = () => Promise<Body>;
+
+const intakeBodyLimit = bodyLimit({
+  maxSize: maxBody,
+  onError: () => {
+    throw new AppError(413, "payload_too_large", `The request is too large. Attachments can be up to ${config.limits.attachmentBytes / 1024 / 1024} MB each.`);
+  },
+});
+
 export const ingestRoutes = new Hono()
   .use("*", async (c, next) => {
     cors(c);
@@ -183,378 +198,421 @@ export const ingestRoutes = new Hono()
     const { token: minted, expiresAt } = mintBrowserToken(project.id, Number.isFinite(seconds) ? seconds : 300);
     return c.json({ success: true, token: minted, expires_at: expiresAt.toISOString(), max_seconds: MAX_TOKEN_SECONDS });
   })
-  .post(
-    "/:project/reports",
-    bodyLimit({
-      maxSize: maxBody,
-      onError: () => {
-        throw new AppError(413, "payload_too_large", `The request is too large. Attachments can be up to ${config.limits.attachmentBytes / 1024 / 1024} MB each.`);
-      },
-    }),
-    async (c) => {
-      const projectId = c.req.param("project");
-      const project = await db.query.projects.findFirst({ where: eq(schema.projects.id, projectId) });
-      if (!project) throw notFound("That project");
+  .post("/:project/reports", intakeBodyLimit, async (c) => {
+    const project = await projectFor(c.req.param("project"));
+    const caller = await authenticate(c, project, c.req.header("authorization"));
+    const result = await fileReport(c, project, caller, () => readBody(c));
+    return c.json(result.body, result.status);
+  })
+  /**
+   * The same intake, addressed the way a Discord webhook is: the secret is
+   * in the URL, so code written for a webhook works by changing the
+   * address. Built for Roblox, whose game servers Discord refuses, but any
+   * caller that speaks Discord's shape is welcome. See webhook.ts.
+   */
+  .get("/:project/webhook/:key", async (c) => {
+    const project = await projectFor(c.req.param("project"));
+    await hookCaller(c, project);
+    return c.json({ id: project.id, name: project.name, type: 1, issueit: true, message: "This webhook files reports into Issueit. POST Discord-style JSON, or an Issueit report, to it." });
+  })
+  .post("/:project/webhook/:key", intakeBodyLimit, async (c) => {
+    const project = await projectFor(c.req.param("project"));
+    const caller = await hookCaller(c, project);
+    const defaults: HookDefaults = {
+      priority: c.req.query("priority") || undefined,
+      environment: c.req.query("environment") || undefined,
+      source: c.req.query("source") || (isRobloxAgent(c.req.header("user-agent")) ? "roblox" : "webhook"),
+    };
+    const result = await fileReport(c, project, caller, () => readHookBody(c, defaults));
+    // Discord answers 204 unless asked to wait for the message; callers written for it expect the same.
+    if (c.req.query("wait") !== "true" && result.status === 201) return c.body(null, 204);
+    return c.json(result.body, result.status);
+  });
 
-      const origin = c.req.header("origin");
-      const auth = c.req.header("authorization");
-      let viaKeyId: string | null = null;
-      /** A short-lived token minted by the project's own server for a browser. */
-      let viaBrowserToken = false;
-      if (auth && isBrowserToken(auth.replace(/^Bearer\s+/i, "").trim())) {
-        const token = auth.replace(/^Bearer\s+/i, "").trim();
-        const read = readBrowserToken(token);
-        if (!read || read.projectId !== project.id) throw new AppError(401, "invalid_token", "That short-lived token isn't valid for this project, or it has expired. Ask your server for another.");
-        viaBrowserToken = true;
-      } else if (auth) {
-        const token = auth.replace(/^Bearer\s+/i, "").trim();
-        if (!token.startsWith("sk_")) throw new AppError(401, "invalid_key", "That isn't a secret key. Project ids don't go in the Authorization header.");
-        const key = await db.query.apiKeys.findFirst({ where: and(eq(schema.apiKeys.keyHash, sha256(token)), isNull(schema.apiKeys.revokedAt)) });
-        if (!key || key.projectId !== project.id) throw new AppError(401, "invalid_key", "That secret key isn't valid for this project.");
-        // A secret key in a browser is a leaked key.
-        if (origin && origin !== appOrigin) throw new AppError(400, "key_in_browser", "Secret keys must only be used from your server. Use the project id alone in browsers.");
-        viaKeyId = key.id;
-        if (!key.lastUsedAt || Date.now() - key.lastUsedAt.getTime() > 60_000) {
-          await db.update(schema.apiKeys).set({ lastUsedAt: new Date() }).where(eq(schema.apiKeys.id, key.id));
+async function projectFor(id: string): Promise<Project> {
+  const project = await db.query.projects.findFirst({ where: eq(schema.projects.id, id) });
+  if (!project) throw notFound("That project");
+  return project;
+}
+
+/** Who is sending: a secret key, a short-lived browser token, or anybody at all. */
+async function authenticate(c: Context, project: Project, auth: string | undefined): Promise<Caller> {
+  const origin = c.req.header("origin");
+  const token = (auth ?? "").replace(/^Bearer\s+/i, "").trim();
+  if (auth && isBrowserToken(token)) {
+    const read = readBrowserToken(token);
+    if (!read || read.projectId !== project.id) throw new AppError(401, "invalid_token", "That short-lived token isn't valid for this project, or it has expired. Ask your server for another.");
+    return { viaKeyId: null, viaBrowserToken: true };
+  }
+  if (auth) {
+    if (!token.startsWith("sk_")) throw new AppError(401, "invalid_key", "That isn't a secret key. Project ids don't go in the Authorization header.");
+    const key = await db.query.apiKeys.findFirst({ where: and(eq(schema.apiKeys.keyHash, sha256(token)), isNull(schema.apiKeys.revokedAt)) });
+    if (!key || key.projectId !== project.id) throw new AppError(401, "invalid_key", "That secret key isn't valid for this project.");
+    // A secret key in a browser is a leaked key.
+    if (origin && origin !== appOrigin) throw new AppError(400, "key_in_browser", "Secret keys must only be used from your server. Use the project id alone in browsers.");
+    if (!key.lastUsedAt || Date.now() - key.lastUsedAt.getTime() > 60_000) {
+      await db.update(schema.apiKeys).set({ lastUsedAt: new Date() }).where(eq(schema.apiKeys.id, key.id));
+    }
+    return { viaKeyId: key.id, viaBrowserToken: false };
+  }
+  if (!project.publicSubmissions) throw new AppError(403, "public_disabled", "This project only accepts reports sent with a secret key, or a short-lived token from your server.");
+  const allowed = project.allowedOrigins;
+  if (allowed.length && origin !== appOrigin && !(origin && allowed.includes(origin))) {
+    throw new AppError(403, "origin_not_allowed", "Reports from this site aren't allowed for this project.");
+  }
+  return { viaKeyId: null, viaBrowserToken: false };
+}
+
+/** A webhook address carries a secret key and nothing else: no browser tokens, no anonymous posts. */
+async function hookCaller(c: Context, project: Project): Promise<Caller> {
+  const key = c.req.param("key") ?? "";
+  if (!key.startsWith("sk_")) throw new AppError(401, "invalid_key", "A webhook address ends in one of the project's secret keys.");
+  return authenticate(c, project, `Bearer ${key}`);
+}
+
+/**
+ * Everything after "who is this": limits, the allowance, duplicates, spam,
+ * storage, delivery. Throws AppError for refusals; returns what to answer.
+ */
+async function fileReport(c: Context, project: Project, caller: Caller, read: Reader): Promise<Filed> {
+  const { viaKeyId, viaBrowserToken } = caller;
+  const origin = c.req.header("origin");
+
+  const org = await db.query.organisations.findFirst({ where: eq(schema.organisations.id, project.orgId) });
+  if (!org) throw notFound("That project");
+  const plan = limitsFor(org);
+
+  const ip = keyedHash(clientIp(c));
+  const limits: Limit[] = [
+    { key: `ingest:project:${project.id}`, max: config.limits.reportsPerProjectPerHour, windowMs: 3600_000 },
+    /**
+     * The same ceiling for the organisation as a whole. Without it, a
+     * plan that allows plenty of projects allows plenty of times the
+     * hourly ceiling: one spam run, spread over ten projects, stayed
+     * inside every per-project limit.
+     */
+    { key: `ingest:org:${project.orgId}`, max: config.limits.reportsPerOrgPerHour, windowMs: 3600_000 },
+  ];
+  limits.push(
+    viaKeyId
+      ? { key: `ingest:key:${viaKeyId}`, max: plan.reportsPerKeyPerMinute, windowMs: 60_000 }
+      : { key: `ingest:ip:${project.id}:${ip}`, max: config.limits.reportsPerIpPerMinute, windowMs: 60_000 },
+  );
+  const rl = await hitAll(limits);
+  if (!rl.ok) {
+    c.header("retry-after", String(rl.retryAfter));
+    throw tooMany("Too many reports in a short time. Wait a moment and try again.");
+  }
+
+  /**
+   * The monthly allowance. Issueit keeps accepting a little past it,
+   * because a real bug report from a real user is worth more than a
+   * tidy line, and tells the owners rather than failing silently.
+   */
+  const allowance = await allowanceFor(org);
+  if (!allowance.ok) {
+    await noteRefusal(org.id, "plan_limit");
+    void warnAboutUsage(org, allowance);
+    c.header("retry-after", String(secondsToNextMonth()));
+    throw new AppError(
+      429,
+      "plan_limit",
+      `This organisation has used its ${allowance.limit} reports for this month. The allowance resets at the start of next month, or an owner can change plan.`,
+    );
+  }
+  if (allowance.grace) void warnAboutUsage(org, allowance);
+
+  const { input, files } = await read();
+
+  /**
+   * The same submission twice — a retry after a timeout, a queue that
+   * delivers at least once — files one report. The key is the caller's,
+   * scoped to the project.
+   */
+  const idempotencyKey = (c.req.header("idempotency-key") ?? input.idempotency_key ?? "").trim().slice(0, 120) || null;
+  if (idempotencyKey) {
+    const earlier = await db.query.reports.findFirst({
+      where: and(eq(schema.reports.projectId, project.id), eq(schema.reports.idempotencyKey, idempotencyKey)),
+      columns: { id: true, groupId: true },
+    });
+    if (earlier) {
+      c.header("idempotent-replay", "true");
+      return { status: 200, body: { success: true, report_id: earlier.id, message: "Report already received", duplicate: !!earlier.groupId, replayed: true } };
+    }
+  }
+
+  /** Says what would happen without storing anything. */
+  const dryRun = ["1", "true", "yes"].includes((c.req.query("dry_run") ?? "").toLowerCase());
+
+  /**
+   * The honeypot, and reporters this project has blocked. Both are
+   * answered as though the report had been filed: a spammer who can tell
+   * refusal from acceptance tries again differently, and one who can't
+   * carries on posting into nothing.
+   */
+  const anonymous = !viaKeyId && !viaBrowserToken;
+  if (input.website) return { status: 201, body: { success: true, report_id: newId("rep"), message: "Report received" } };
+  if (anonymous && isBlocked(project.protection, { ipHash: ip, email: input.reporter?.email || input.email || null })) {
+    return { status: 201, body: { success: true, report_id: newId("rep"), message: "Report received" } };
+  }
+  const allowed = { attachmentBytes: Math.min(plan.attachmentBytes, config.limits.attachmentBytes), attachmentsPerReport: Math.min(plan.attachmentsPerReport, config.limits.attachmentsPerReport) };
+  if (files.length > allowed.attachmentsPerReport) throw badRequest(`Attach up to ${allowed.attachmentsPerReport} files.`);
+
+  const prepared = files.map((f, i) => {
+    if (f.data.byteLength > allowed.attachmentBytes) throw new AppError(413, "attachment_too_large", `${f.name ?? `Attachment ${i + 1}`} is larger than ${allowed.attachmentBytes / 1024 / 1024} MB.`);
+    if (!f.data.byteLength) throw badRequest(`${f.name ?? `Attachment ${i + 1}`} is empty.`);
+    const type = sniff(f.data);
+    if (!type) throw new AppError(415, "unsupported_attachment", `${f.name ?? `Attachment ${i + 1}`} isn't a supported file type. Use an image, video, PDF, text file or zip.`);
+    return { id: newId("att"), filename: cleanFilename(f.name, type.ext), contentType: type.contentType, data: f.data };
+  });
+
+  // The plan's cap, or the operator's, whichever is set and smaller.
+  const storageCap = [plan.storageBytes, config.limits.storageBytes].filter((n) => n > 0).sort((a, b) => a - b)[0] ?? 0;
+  if (storageCap && prepared.length) {
+    const [row] = await db.execute<{ bytes: number }>(sql`select coalesce(sum(size_bytes), 0)::bigint as bytes from attachments where org_id = ${project.orgId}`);
+    const incoming = prepared.reduce((n, f) => n + f.data.byteLength, 0);
+    if (Number(row.bytes) + incoming > storageCap) {
+      await noteRefusal(org.id, "storage_limit");
+      throw new AppError(507, "storage_full", "This organisation has used all of its attachment storage.");
+    }
+  }
+
+  const ua = c.req.header("user-agent");
+  const context: ReportContext = { ...Object.fromEntries(Object.entries(input.context ?? {}).filter(([, v]) => v)) };
+  const fromWidget = input.context?.userAgent ?? (origin ? ua : undefined);
+  if (fromWidget) Object.assign(context, { userAgent: fromWidget.slice(0, 500) }, describeUserAgent(fromWidget));
+
+
+  const country = reportCountry(c, context.timezone, org?.settings.location);
+
+  const metadata = input.metadata ?? {};
+  /**
+   * Roblox game servers name the place they run in. Informational only:
+   * anyone can send the header, so nothing is decided by it.
+   */
+  const roblox = isRobloxAgent(ua);
+  const placeId = c.req.header("roblox-id");
+  if (roblox && placeId && /^\d{1,20}$/.test(placeId) && !("place_id" in metadata)) metadata.place_id = placeId;
+  if (JSON.stringify(metadata).length > 16_384) throw badRequest("metadata: Keep metadata under 16 KB.");
+  const diagnostics = cleanDiagnostics(input.diagnostics, project.rules.redaction?.patterns);
+  /**
+   * An address can carry the very thing nobody wants stored: a reset
+   * token, a session in a fragment, an email in the query. The widget
+   * takes those out before sending; here it happens again, because a
+   * report can arrive from anywhere, and the project's own redaction
+   * rules apply to the address as much as to the console.
+   */
+  const redaction = compilePatterns(project.rules.redaction?.patterns);
+  const pageUrl = input.page_url ? scrubLink(input.page_url, 2000, redaction) : null;
+  if (context.referrer) context.referrer = scrubLink(context.referrer, 2000, redaction);
+  const fingerprint = fingerprintFor({ fingerprint: input.fingerprint, title: input.title, pageUrl }, project.rules.grouping);
+  const reporterEmail = input.reporter?.email || input.email || null;
+  // Emails go to whatever address is typed in, so one visitor can only ask for a few a day.
+  let notifyReporter = !!input.notify && !!reporterEmail;
+  if (notifyReporter && !viaKeyId) {
+    const [row] = await db.execute<{ n: number }>(sql`
+      select count(*)::int as n from reports
+      where project_id = ${project.id} and ip_hash = ${ip} and notify_reporter and created_at > now() - interval '1 day'`);
+    if (row.n >= NOTIFY_PER_VISITOR_PER_DAY) notifyReporter = false;
+  }
+
+  const reportId = newId("rep");
+  const priority = priorityAliases[(input.priority ?? input.severity ?? "medium").toLowerCase()] ?? "medium";
+  const source = input.source || (roblox ? "roblox" : viaKeyId ? "api" : origin === appOrigin ? "form" : origin || viaBrowserToken ? "widget" : "api");
+
+  /**
+   * Is anyone going to want to read this? Only asked of public
+   * submissions: a secret key or a short-lived token means the project's
+   * own server vouched for the sender, and second-guessing it there
+   * would hold back reports a customer filed deliberately.
+   *
+   * A report that looks like spam is still stored — see protection.ts.
+   * What it loses is delivery, email, and a place in the inbox.
+   */
+  const contentHash = contentHashOf(input.title, input.description ?? "");
+  const verdict: SpamVerdict | null = anonymous && spamCheckEnabled(project.protection)
+    ? scoreSpam(
+        {
+          title: input.title,
+          description: input.description ?? "",
+          pageUrl,
+          reporterEmail,
+          hasDiagnostics: !!(diagnostics.console?.length || diagnostics.network?.length || diagnostics.steps?.length),
+          source,
+        },
+        await velocityFor(project.id, ip, contentHash),
+        project.protection,
+      )
+    : null;
+  const quarantined = !!verdict?.spam;
+
+  if (dryRun) {
+    const [openGroup] = fingerprint && project.groupDuplicates && !quarantined
+      ? await db
+          .select({ id: schema.reports.id, number: schema.reports.number, title: schema.reports.title, duplicateCount: schema.reports.duplicateCount })
+          .from(schema.reports)
+          .where(
+            and(
+              eq(schema.reports.projectId, project.id),
+              eq(schema.reports.fingerprint, fingerprint),
+              isNull(schema.reports.groupId),
+              sql`${schema.reports.status} in ('new', 'investigating')`,
+            ),
+          )
+          .limit(1)
+      : [];
+    const destinations = await db.query.destinations.findMany({ where: and(eq(schema.destinations.projectId, project.id), eq(schema.destinations.enabled, true)) });
+    const shaped = { priority, source, environment: input.environment || null };
+    const routed = destinations.map((d) => {
+      const provider = getProvider(d.provider);
+      const wouldDeliver = !!provider && provider.events.includes("report.created") && d.events.includes("report.created") && matchesRule(d.rule, shaped);
+      return {
+        id: d.id,
+        name: d.name,
+        provider: d.provider,
+        would_deliver: wouldDeliver && !openGroup && !quarantined,
+        // A duplicate isn't delivered again; the tracker may get a comment instead.
+        why: !wouldDeliver
+          ? "the destination's rule doesn't match this report"
+          : quarantined
+            ? "this report would be held back as likely spam"
+            : openGroup
+              ? "this report would join an open group, so it isn't delivered again"
+              : null,
+      };
+    });
+    return { status: 200, body: {
+      success: true,
+      dry_run: true,
+      report: { title: input.title, priority, source, environment: shaped.environment, page_url: pageUrl, release: input.release ?? null, country },
+      fingerprint,
+      duplicate_of: openGroup ? { id: openGroup.id, number: openGroup.number, title: openGroup.title, seen: openGroup.duplicateCount + 1 } : null,
+      diagnostics,
+      attachments: prepared.map((f) => ({ filename: f.filename, content_type: f.contentType, size_bytes: f.data.byteLength })),
+      destinations: routed,
+      would_email: !!notifyReporter && !quarantined,
+      spam: verdict && { score: verdict.score, held: verdict.spam, reasons: verdict.reasons },
+      message: "Nothing was stored.",
+    } };
+  }
+  const written: string[] = [];
+  let report: typeof schema.reports.$inferSelect;
+  let lead: typeof schema.reports.$inferSelect | null = null;
+  try {
+    for (const f of prepared) {
+      const key = `${project.orgId}/${project.id}/${reportId}/${f.id}`;
+      await storage.put(key, f.data);
+      written.push(key);
+    }
+    report = await db.transaction(async (tx) => {
+      const [seq] = await tx
+        .update(schema.projects)
+        .set({ reportSeq: sql`${schema.projects.reportSeq} + 1`, lastReportAt: new Date() })
+        .where(eq(schema.projects.id, project.id))
+        .returning({ n: schema.projects.reportSeq });
+      // The same bug, still open: join its group. The lock keeps two at once from both starting one.
+      if (fingerprint && project.groupDuplicates && !quarantined) {
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`${project.id}:${fingerprint}`}))`);
+        const [open] = await tx
+          .select()
+          .from(schema.reports)
+          .where(and(eq(schema.reports.projectId, project.id), eq(schema.reports.fingerprint, fingerprint), isNull(schema.reports.groupId), sql`${schema.reports.status} in ('new', 'investigating')`))
+          .orderBy(sql`${schema.reports.createdAt} desc`)
+          .limit(1);
+        if (open) {
+          // Re-checked here: if it was resolved a moment ago, this report starts a new group instead.
+          [lead = null] = await tx
+            .update(schema.reports)
+            .set({ duplicateCount: sql`${schema.reports.duplicateCount} + 1`, lastSeenAt: new Date() })
+            .where(and(eq(schema.reports.id, open.id), sql`${schema.reports.status} in ('new', 'investigating')`))
+            .returning();
         }
       }
-      if (!auth) {
-        if (!project.publicSubmissions) throw new AppError(403, "public_disabled", "This project only accepts reports sent with a secret key, or a short-lived token from your server.");
-        const allowed = project.allowedOrigins;
-        if (allowed.length && origin !== appOrigin && !(origin && allowed.includes(origin))) {
-          throw new AppError(403, "origin_not_allowed", "Reports from this site aren't allowed for this project.");
-        }
-      }
-
-      const org = await db.query.organisations.findFirst({ where: eq(schema.organisations.id, project.orgId) });
-      if (!org) throw notFound("That project");
-      const plan = limitsFor(org);
-
-      const ip = keyedHash(clientIp(c));
-      const limits: Limit[] = [
-        { key: `ingest:project:${project.id}`, max: config.limits.reportsPerProjectPerHour, windowMs: 3600_000 },
-        /**
-         * The same ceiling for the organisation as a whole. Without it, a
-         * plan that allows plenty of projects allows plenty of times the
-         * hourly ceiling: one spam run, spread over ten projects, stayed
-         * inside every per-project limit.
-         */
-        { key: `ingest:org:${project.orgId}`, max: config.limits.reportsPerOrgPerHour, windowMs: 3600_000 },
-      ];
-      limits.push(
-        viaKeyId
-          ? { key: `ingest:key:${viaKeyId}`, max: plan.reportsPerKeyPerMinute, windowMs: 60_000 }
-          : { key: `ingest:ip:${project.id}:${ip}`, max: config.limits.reportsPerIpPerMinute, windowMs: 60_000 },
-      );
-      const rl = await hitAll(limits);
-      if (!rl.ok) {
-        c.header("retry-after", String(rl.retryAfter));
-        throw tooMany("Too many reports in a short time. Wait a moment and try again.");
-      }
-
-      /**
-       * The monthly allowance. Issueit keeps accepting a little past it,
-       * because a real bug report from a real user is worth more than a
-       * tidy line, and tells the owners rather than failing silently.
-       */
-      const allowance = await allowanceFor(org);
-      if (!allowance.ok) {
-        await noteRefusal(org.id, "plan_limit");
-        void warnAboutUsage(org, allowance);
-        c.header("retry-after", String(secondsToNextMonth()));
-        throw new AppError(
-          429,
-          "plan_limit",
-          `This organisation has used its ${allowance.limit} reports for this month. The allowance resets at the start of next month, or an owner can change plan.`,
+      const [row] = await tx
+        .insert(schema.reports)
+        .values({
+          id: reportId,
+          orgId: project.orgId,
+          projectId: project.id,
+          number: seq.n,
+          title: input.title,
+          description: input.description?.trim() ?? "",
+          priority,
+          status: lead?.status ?? "new",
+          source,
+          environment: input.environment || null,
+          release: input.release || null,
+          idempotencyKey,
+          pageUrl,
+          browser: input.browser || context.browser || null,
+          context,
+          country,
+          reporterEmail,
+          reporterName: input.reporter?.name || input.name || null,
+          metadata,
+          diagnostics,
+          notifyReporter,
+          fingerprint,
+          groupId: lead?.id ?? null,
+          ipHash: ip,
+          viaKeyId,
+          contentHash,
+          quarantinedAt: quarantined ? new Date() : null,
+          spamScore: verdict?.score ?? null,
+          spamReasons: quarantined ? verdict!.reasons : [],
+        })
+        .returning();
+      if (prepared.length) {
+        await tx.insert(schema.attachments).values(
+          prepared.map((f, i) => ({
+            id: f.id,
+            orgId: project.orgId,
+            projectId: project.id,
+            reportId,
+            filename: f.filename,
+            contentType: f.contentType,
+            sizeBytes: f.data.byteLength,
+            storageKey: written[i],
+          })),
         );
       }
-      if (allowance.grace) void warnAboutUsage(org, allowance);
+      return row;
+    });
+  } catch (err) {
+    await Promise.all(written.map((k) => storage.remove(k).catch(() => {})));
+    throw err;
+  }
 
-      const { input, files } = await readBody(c);
+  /**
+   * Held back: stored, and that is all. No destination hears about it,
+   * nobody is emailed, and it doesn't count against the month, because
+   * charging a customer for a spam run would be the second insult. It
+   * waits in the inbox's spam view until someone says otherwise.
+   */
+  if (quarantined) {
+    await publish({ type: "report.created", orgId: report.orgId, projectId: report.projectId, reportId: report.id }).catch(() => {});
+    return { status: 201, body: { success: true, report_id: report.id, message: "Report received" } };
+  }
 
-      /**
-       * The same submission twice — a retry after a timeout, a queue that
-       * delivers at least once — files one report. The key is the caller's,
-       * scoped to the project.
-       */
-      const idempotencyKey = (c.req.header("idempotency-key") ?? input.idempotency_key ?? "").trim().slice(0, 120) || null;
-      if (idempotencyKey) {
-        const earlier = await db.query.reports.findFirst({
-          where: and(eq(schema.reports.projectId, project.id), eq(schema.reports.idempotencyKey, idempotencyKey)),
-          columns: { id: true, groupId: true },
-        });
-        if (earlier) {
-          c.header("idempotent-replay", "true");
-          return c.json({ success: true, report_id: earlier.id, message: "Report already received", duplicate: !!earlier.groupId, replayed: true }, 200);
-        }
-      }
+  countedOne(org.id);
+  // Telling someone it arrived, if anyone asked to hear about it.
+  void notifyAboutReport(report, project).catch((err) => console.error("[ingest] couldn't send notifications for", report.id, err));
 
-      /** Says what would happen without storing anything. */
-      const dryRun = ["1", "true", "yes"].includes((c.req.query("dry_run") ?? "").toLowerCase());
-
-      /**
-       * The honeypot, and reporters this project has blocked. Both are
-       * answered as though the report had been filed: a spammer who can tell
-       * refusal from acceptance tries again differently, and one who can't
-       * carries on posting into nothing.
-       */
-      const anonymous = !viaKeyId && !viaBrowserToken;
-      if (input.website) return c.json({ success: true, report_id: newId("rep"), message: "Report received" }, 201);
-      if (anonymous && isBlocked(project.protection, { ipHash: ip, email: input.reporter?.email || input.email || null })) {
-        return c.json({ success: true, report_id: newId("rep"), message: "Report received" }, 201);
-      }
-      const allowed = { attachmentBytes: Math.min(plan.attachmentBytes, config.limits.attachmentBytes), attachmentsPerReport: Math.min(plan.attachmentsPerReport, config.limits.attachmentsPerReport) };
-      if (files.length > allowed.attachmentsPerReport) throw badRequest(`Attach up to ${allowed.attachmentsPerReport} files.`);
-
-      const prepared = files.map((f, i) => {
-        if (f.data.byteLength > allowed.attachmentBytes) throw new AppError(413, "attachment_too_large", `${f.name ?? `Attachment ${i + 1}`} is larger than ${allowed.attachmentBytes / 1024 / 1024} MB.`);
-        if (!f.data.byteLength) throw badRequest(`${f.name ?? `Attachment ${i + 1}`} is empty.`);
-        const type = sniff(f.data);
-        if (!type) throw new AppError(415, "unsupported_attachment", `${f.name ?? `Attachment ${i + 1}`} isn't a supported file type. Use an image, video, PDF, text file or zip.`);
-        return { id: newId("att"), filename: cleanFilename(f.name, type.ext), contentType: type.contentType, data: f.data };
-      });
-
-      // The plan's cap, or the operator's, whichever is set and smaller.
-      const storageCap = [plan.storageBytes, config.limits.storageBytes].filter((n) => n > 0).sort((a, b) => a - b)[0] ?? 0;
-      if (storageCap && prepared.length) {
-        const [row] = await db.execute<{ bytes: number }>(sql`select coalesce(sum(size_bytes), 0)::bigint as bytes from attachments where org_id = ${project.orgId}`);
-        const incoming = prepared.reduce((n, f) => n + f.data.byteLength, 0);
-        if (Number(row.bytes) + incoming > storageCap) {
-          await noteRefusal(org.id, "storage_limit");
-          throw new AppError(507, "storage_full", "This organisation has used all of its attachment storage.");
-        }
-      }
-
-      const ua = c.req.header("user-agent");
-      const context: ReportContext = { ...Object.fromEntries(Object.entries(input.context ?? {}).filter(([, v]) => v)) };
-      const fromWidget = input.context?.userAgent ?? (origin ? ua : undefined);
-      if (fromWidget) Object.assign(context, { userAgent: fromWidget.slice(0, 500) }, describeUserAgent(fromWidget));
-
-
-      const country = reportCountry(c, context.timezone, org?.settings.location);
-
-      const metadata = input.metadata ?? {};
-      if (JSON.stringify(metadata).length > 16_384) throw badRequest("metadata: Keep metadata under 16 KB.");
-      const diagnostics = cleanDiagnostics(input.diagnostics, project.rules.redaction?.patterns);
-      /**
-       * An address can carry the very thing nobody wants stored: a reset
-       * token, a session in a fragment, an email in the query. The widget
-       * takes those out before sending; here it happens again, because a
-       * report can arrive from anywhere, and the project's own redaction
-       * rules apply to the address as much as to the console.
-       */
-      const redaction = compilePatterns(project.rules.redaction?.patterns);
-      const pageUrl = input.page_url ? scrubLink(input.page_url, 2000, redaction) : null;
-      if (context.referrer) context.referrer = scrubLink(context.referrer, 2000, redaction);
-      const fingerprint = fingerprintFor({ fingerprint: input.fingerprint, title: input.title, pageUrl }, project.rules.grouping);
-      const reporterEmail = input.reporter?.email || input.email || null;
-      // Emails go to whatever address is typed in, so one visitor can only ask for a few a day.
-      let notifyReporter = !!input.notify && !!reporterEmail;
-      if (notifyReporter && !viaKeyId) {
-        const [row] = await db.execute<{ n: number }>(sql`
-          select count(*)::int as n from reports
-          where project_id = ${project.id} and ip_hash = ${ip} and notify_reporter and created_at > now() - interval '1 day'`);
-        if (row.n >= NOTIFY_PER_VISITOR_PER_DAY) notifyReporter = false;
-      }
-
-      const reportId = newId("rep");
-      const priority = priorityAliases[(input.priority ?? input.severity ?? "medium").toLowerCase()] ?? "medium";
-      const source = input.source || (viaKeyId ? "api" : origin === appOrigin ? "form" : origin || viaBrowserToken ? "widget" : "api");
-
-      /**
-       * Is anyone going to want to read this? Only asked of public
-       * submissions: a secret key or a short-lived token means the project's
-       * own server vouched for the sender, and second-guessing it there
-       * would hold back reports a customer filed deliberately.
-       *
-       * A report that looks like spam is still stored — see protection.ts.
-       * What it loses is delivery, email, and a place in the inbox.
-       */
-      const contentHash = contentHashOf(input.title, input.description ?? "");
-      const verdict: SpamVerdict | null = anonymous && spamCheckEnabled(project.protection)
-        ? scoreSpam(
-            {
-              title: input.title,
-              description: input.description ?? "",
-              pageUrl,
-              reporterEmail,
-              hasDiagnostics: !!(diagnostics.console?.length || diagnostics.network?.length || diagnostics.steps?.length),
-              source,
-            },
-            await velocityFor(project.id, ip, contentHash),
-            project.protection,
-          )
-        : null;
-      const quarantined = !!verdict?.spam;
-
-      if (dryRun) {
-        const [openGroup] = fingerprint && project.groupDuplicates && !quarantined
-          ? await db
-              .select({ id: schema.reports.id, number: schema.reports.number, title: schema.reports.title, duplicateCount: schema.reports.duplicateCount })
-              .from(schema.reports)
-              .where(
-                and(
-                  eq(schema.reports.projectId, project.id),
-                  eq(schema.reports.fingerprint, fingerprint),
-                  isNull(schema.reports.groupId),
-                  sql`${schema.reports.status} in ('new', 'investigating')`,
-                ),
-              )
-              .limit(1)
-          : [];
-        const destinations = await db.query.destinations.findMany({ where: and(eq(schema.destinations.projectId, project.id), eq(schema.destinations.enabled, true)) });
-        const shaped = { priority, source, environment: input.environment || null };
-        const routed = destinations.map((d) => {
-          const provider = getProvider(d.provider);
-          const wouldDeliver = !!provider && provider.events.includes("report.created") && d.events.includes("report.created") && matchesRule(d.rule, shaped);
-          return {
-            id: d.id,
-            name: d.name,
-            provider: d.provider,
-            would_deliver: wouldDeliver && !openGroup && !quarantined,
-            // A duplicate isn't delivered again; the tracker may get a comment instead.
-            why: !wouldDeliver
-              ? "the destination's rule doesn't match this report"
-              : quarantined
-                ? "this report would be held back as likely spam"
-                : openGroup
-                  ? "this report would join an open group, so it isn't delivered again"
-                  : null,
-          };
-        });
-        return c.json({
-          success: true,
-          dry_run: true,
-          report: { title: input.title, priority, source, environment: shaped.environment, page_url: pageUrl, release: input.release ?? null, country },
-          fingerprint,
-          duplicate_of: openGroup ? { id: openGroup.id, number: openGroup.number, title: openGroup.title, seen: openGroup.duplicateCount + 1 } : null,
-          diagnostics,
-          attachments: prepared.map((f) => ({ filename: f.filename, content_type: f.contentType, size_bytes: f.data.byteLength })),
-          destinations: routed,
-          would_email: !!notifyReporter && !quarantined,
-          spam: verdict && { score: verdict.score, held: verdict.spam, reasons: verdict.reasons },
-          message: "Nothing was stored.",
-        });
-      }
-      const written: string[] = [];
-      let report: typeof schema.reports.$inferSelect;
-      let lead: typeof schema.reports.$inferSelect | null = null;
-      try {
-        for (const f of prepared) {
-          const key = `${project.orgId}/${project.id}/${reportId}/${f.id}`;
-          await storage.put(key, f.data);
-          written.push(key);
-        }
-        report = await db.transaction(async (tx) => {
-          const [seq] = await tx
-            .update(schema.projects)
-            .set({ reportSeq: sql`${schema.projects.reportSeq} + 1`, lastReportAt: new Date() })
-            .where(eq(schema.projects.id, project.id))
-            .returning({ n: schema.projects.reportSeq });
-          // The same bug, still open: join its group. The lock keeps two at once from both starting one.
-          if (fingerprint && project.groupDuplicates && !quarantined) {
-            await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`${project.id}:${fingerprint}`}))`);
-            const [open] = await tx
-              .select()
-              .from(schema.reports)
-              .where(and(eq(schema.reports.projectId, project.id), eq(schema.reports.fingerprint, fingerprint), isNull(schema.reports.groupId), sql`${schema.reports.status} in ('new', 'investigating')`))
-              .orderBy(sql`${schema.reports.createdAt} desc`)
-              .limit(1);
-            if (open) {
-              // Re-checked here: if it was resolved a moment ago, this report starts a new group instead.
-              [lead = null] = await tx
-                .update(schema.reports)
-                .set({ duplicateCount: sql`${schema.reports.duplicateCount} + 1`, lastSeenAt: new Date() })
-                .where(and(eq(schema.reports.id, open.id), sql`${schema.reports.status} in ('new', 'investigating')`))
-                .returning();
-            }
-          }
-          const [row] = await tx
-            .insert(schema.reports)
-            .values({
-              id: reportId,
-              orgId: project.orgId,
-              projectId: project.id,
-              number: seq.n,
-              title: input.title,
-              description: input.description?.trim() ?? "",
-              priority,
-              status: lead?.status ?? "new",
-              source,
-              environment: input.environment || null,
-              release: input.release || null,
-              idempotencyKey,
-              pageUrl,
-              browser: input.browser || context.browser || null,
-              context,
-              country,
-              reporterEmail,
-              reporterName: input.reporter?.name || input.name || null,
-              metadata,
-              diagnostics,
-              notifyReporter,
-              fingerprint,
-              groupId: lead?.id ?? null,
-              ipHash: ip,
-              viaKeyId,
-              contentHash,
-              quarantinedAt: quarantined ? new Date() : null,
-              spamScore: verdict?.score ?? null,
-              spamReasons: quarantined ? verdict!.reasons : [],
-            })
-            .returning();
-          if (prepared.length) {
-            await tx.insert(schema.attachments).values(
-              prepared.map((f, i) => ({
-                id: f.id,
-                orgId: project.orgId,
-                projectId: project.id,
-                reportId,
-                filename: f.filename,
-                contentType: f.contentType,
-                sizeBytes: f.data.byteLength,
-                storageKey: written[i],
-              })),
-            );
-          }
-          return row;
-        });
-      } catch (err) {
-        await Promise.all(written.map((k) => storage.remove(k).catch(() => {})));
-        throw err;
-      }
-
-      /**
-       * Held back: stored, and that is all. No destination hears about it,
-       * nobody is emailed, and it doesn't count against the month, because
-       * charging a customer for a spam run would be the second insult. It
-       * waits in the inbox's spam view until someone says otherwise.
-       */
-      if (quarantined) {
-        await publish({ type: "report.created", orgId: report.orgId, projectId: report.projectId, reportId: report.id }).catch(() => {});
-        return c.json({ success: true, report_id: report.id, message: "Report received" }, 201);
-      }
-
-      countedOne(org.id);
-      // Telling someone it arrived, if anyone asked to hear about it.
-      void notifyAboutReport(report, project).catch((err) => console.error("[ingest] couldn't send notifications for", report.id, err));
-
-      // The report is stored. Queueing delivery and email can fail without losing it.
-      try {
-        if (lead) await enqueueDuplicate(lead, report);
-        else await enqueueReportEvent(report, "report.created");
-      } catch (err) {
-        console.error("[ingest] couldn't queue deliveries for", report.id, err);
-      }
-      try {
-        await queueReceipt(report, project);
-      } catch (err) {
-        console.error("[ingest] couldn't queue the receipt for", report.id, err);
-      }
-      await publish({ type: "report.created", orgId: report.orgId, projectId: report.projectId, reportId: report.id }).catch(() => {});
-      return c.json({ success: true, report_id: report.id, message: "Report received", duplicate: !!lead }, 201);
-    },
-  );
+  // The report is stored. Queueing delivery and email can fail without losing it.
+  try {
+    if (lead) await enqueueDuplicate(lead, report);
+    else await enqueueReportEvent(report, "report.created");
+  } catch (err) {
+    console.error("[ingest] couldn't queue deliveries for", report.id, err);
+  }
+  try {
+    await queueReceipt(report, project);
+  } catch (err) {
+    console.error("[ingest] couldn't queue the receipt for", report.id, err);
+  }
+  await publish({ type: "report.created", orgId: report.orgId, projectId: report.projectId, reportId: report.id }).catch(() => {});
+  return { status: 201, body: { success: true, report_id: report.id, message: "Report received", duplicate: !!lead } };
+}
 
 /** What the widget should say it accepts: the plan's limit, under the operator's. */
 async function attachmentLimits(orgId: string) {
@@ -605,6 +663,51 @@ async function readBody(c: Context): Promise<{ input: z.infer<typeof reportInput
     const data = Buffer.from(a.data.replace(/^data:[^;]+;base64,/, ""), "base64");
     return { name: a.filename, data: new Uint8Array(data) };
   });
+  return { input, files };
+}
+
+/**
+ * What a webhook caller sends. Discord takes JSON, or multipart with the
+ * JSON in payload_json and files beside it. Roblox's PostAsync labels JSON
+ * as a form unless told otherwise, so the body is tried as JSON first,
+ * whatever it says it is.
+ */
+async function readHookBody(c: Context, defaults: HookDefaults): Promise<Body> {
+  const type = c.req.header("content-type") ?? "";
+  let raw: unknown;
+  const files: RawFile[] = [];
+  if (type.includes("multipart/form-data")) {
+    let form: Record<string, string | File | (string | File)[]>;
+    try {
+      form = await c.req.parseBody({ all: true });
+    } catch {
+      throw badRequest("The form data couldn't be read.");
+    }
+    const fields: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(form)) {
+      for (const v of Array.isArray(value) ? value : [value]) {
+        if (typeof v !== "string") files.push({ name: v.name, data: new Uint8Array(await v.arrayBuffer()) });
+        else if (key === "payload_json") Object.assign(fields, safeJson(v));
+        else fields[key] = v;
+      }
+    }
+    raw = fields;
+  } else {
+    const text = await c.req.text();
+    try {
+      raw = JSON.parse(text);
+    } catch {
+      // A real form post: content=..., as Discord also accepts.
+      raw = type.includes("application/x-www-form-urlencoded") ? Object.fromEntries(new URLSearchParams(text)) : null;
+    }
+  }
+  const unreadable = !raw || typeof raw !== "object" || Array.isArray(raw);
+  if (unreadable || (!looksLikeDiscord(raw) && typeof (raw as Record<string, unknown>).title !== "string")) {
+    throw badRequest("Send a JSON object: Discord's content or embeds, or an Issueit report with a title.");
+  }
+  const shaped = looksLikeDiscord(raw) ? fromDiscord(raw, defaults) : withDefaults(raw as Record<string, unknown>, defaults);
+  const input = parse(reportInput, shaped);
+  for (const a of input.attachments ?? []) files.push({ name: a.filename, data: new Uint8Array(Buffer.from(a.data.replace(/^data:[^;]+;base64,/, ""), "base64")) });
   return { input, files };
 }
 

@@ -11,8 +11,9 @@ import { SquareArrowRightUpIcon } from "../../components/ui/icons";
 import { PriorityLabel, ReportStatusPill } from "../../components/app/status";
 import { useProjectContext } from "./ProjectLayout";
 import { curlSnippet, widgetSnippet } from "./snippets";
+import { RobloxSetup } from "./Roblox";
 
-type Method = "widget" | "form" | "api";
+type Method = "widget" | "form" | "api" | "roblox";
 
 export function ProjectOverview() {
   const { project, links, stats } = useProjectContext();
@@ -42,6 +43,7 @@ export function ProjectOverview() {
               { value: "widget", label: "Widget" },
               { value: "form", label: "Hosted form" },
               { value: "api", label: "API" },
+              { value: "roblox", label: "Roblox" },
             ]}
           />
         </div>
@@ -68,6 +70,7 @@ export function ProjectOverview() {
               </div>
             </>
           )}
+          {method === "roblox" && <RobloxSetup project={project} links={links} />}
           {method === "api" && (
             <>
               <p className="text-sm text-text-2">

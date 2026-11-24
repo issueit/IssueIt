@@ -32,7 +32,6 @@ import { AppearanceSettings } from "./pages/settings/AppearanceSettings";
 import { GeneralSettings } from "./pages/settings/General";
 import { KeyboardSettings } from "./pages/settings/Keyboard";
 import { AboutSettings } from "./pages/settings/About";
-import { DashboardSettings } from "./pages/settings/DashboardSettings";
 import { DeliverySettings } from "./pages/settings/DeliverySettings";
 import { TokensSettings } from "./pages/settings/Tokens";
 import { AuditSettings } from "./pages/settings/Audit";
@@ -41,7 +40,7 @@ import { IntegrationProvider } from "./pages/integrations/Provider";
 import { TrelloReturn } from "./pages/TrelloReturn";
 import { NotFound } from "./pages/NotFound";
 import { usePreferences } from "./lib/preferences";
-import { onDocsHost } from "./lib/hosts";
+import { elsewhere, onDocsHost } from "./lib/hosts";
 import { hostedRedirects, hostedRoutes, hostedSettings } from "./hosted";
 import { Skeleton } from "./components/ui/feedback";
 
@@ -72,84 +71,86 @@ export function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route
-          index
-          element={
-            <Suspense fallback={null}>
-              <Landing />
-            </Suspense>
-          }
-        />
-        <Route path="/llm" element={page(Llm)} />
-        <Route path="/mcp" element={page(Mcp)} />
-        <Route path="/platform" element={page(Platform)} />
-        <Route path="/classic" element={page(ClassicLanding)} />
-        <Route path="/classic/llm" element={page(ClassicLlm)} />
-        {/* The pages the hosted service adds: pricing, the company, the legal documents. */}
-        {hostedRoutes.map(({ path, Page }) => (
-          <Route key={path} path={path} element={page(Page)} />
-        ))}
-        {hostedRedirects.map(({ from, to }) => (
-          <Route key={from} path={from} element={<Navigate to={to} replace />} />
-        ))}
-        <Route path="/login" element={<Login />} />
-        <Route path="/signup" element={<Signup />} />
-        <Route path="/forgot" element={<Forgot />} />
-        <Route path="/reset" element={<Reset />} />
-        <Route path="/verify" element={<VerifyEmail />} />
-        <Route path="/invite/:token" element={<InvitePage />} />
-        <Route path="/device" element={<DevicePage />} />
-        <Route path="/docs/*" element={page(Docs)} />
-        <Route path="/support" element={<Navigate to="/articles/en" replace />} />
-        <Route path="/articles" element={<Navigate to="/articles/en" replace />} />
-        <Route path="/articles/:locale" element={page(Support)} />
-        <Route path="/articles/:locale/:slug" element={page(SupportArticle)} />
-        <Route element={<Authenticated />}>
-          <Route path="/oauth/trello" element={<TrelloReturn />} />
-          <Route element={<Shell />}>
-            <Route path="/start" element={<StartPage />} />
-            <Route path="/dashboard" element={page(Dashboard)} />
-            <Route path="/inbox/:reportId?" element={<InboxPage />} />
-            <Route path="/projects" element={<ProjectsPage />} />
-            <Route path="/projects/:projectId" element={<ProjectLayout />}>
-              <Route index element={<ProjectOverview />} />
-              <Route path="reports/:reportId?" element={<ProjectReports />} />
-              <Route path="integrations" element={<ProjectIntegrations />} />
-              <Route path="keys" element={<ProjectKeys />} />
-              <Route path="rules" element={<ProjectRules />} />
-              <Route path="releases" element={<ProjectReleases />} />
-              <Route path="widget" element={<WidgetStudio />} />
-              <Route path="settings" element={<ProjectSettings />} />
+        <Route element={<RightHost />}>
+          <Route
+            index
+            element={
+              <Suspense fallback={null}>
+                <Landing />
+              </Suspense>
+            }
+          />
+          <Route path="/llm" element={page(Llm)} />
+          <Route path="/mcp" element={page(Mcp)} />
+          <Route path="/platform" element={page(Platform)} />
+          <Route path="/classic" element={page(ClassicLanding)} />
+          <Route path="/classic/llm" element={page(ClassicLlm)} />
+          {/* The pages the hosted service adds: pricing, the company, the legal documents. */}
+          {hostedRoutes.map(({ path, Page }) => (
+            <Route key={path} path={path} element={page(Page)} />
+          ))}
+          {hostedRedirects.map(({ from, to }) => (
+            <Route key={from} path={from} element={<Navigate to={to} replace />} />
+          ))}
+          <Route path="/login" element={<Login />} />
+          <Route path="/signup" element={<Signup />} />
+          <Route path="/forgot" element={<Forgot />} />
+          <Route path="/reset" element={<Reset />} />
+          <Route path="/verify" element={<VerifyEmail />} />
+          <Route path="/invite/:token" element={<InvitePage />} />
+          <Route path="/device" element={<DevicePage />} />
+          <Route path="/docs/*" element={page(Docs)} />
+          <Route path="/support" element={<Navigate to="/articles/en" replace />} />
+          <Route path="/articles" element={<Navigate to="/articles/en" replace />} />
+          <Route path="/articles/:locale" element={page(Support)} />
+          <Route path="/articles/:locale/:slug" element={page(SupportArticle)} />
+          <Route element={<Authenticated />}>
+            <Route path="/oauth/trello" element={<TrelloReturn />} />
+            <Route element={<Shell />}>
+              <Route path="/start" element={<StartPage />} />
+              <Route path="/dashboard" element={page(Dashboard)} />
+              <Route path="/inbox/:reportId?" element={<InboxPage />} />
+              <Route path="/projects" element={<ProjectsPage />} />
+              <Route path="/projects/:projectId" element={<ProjectLayout />}>
+                <Route index element={<ProjectOverview />} />
+                <Route path="reports/:reportId?" element={<ProjectReports />} />
+                <Route path="integrations" element={<ProjectIntegrations />} />
+                <Route path="keys" element={<ProjectKeys />} />
+                <Route path="rules" element={<ProjectRules />} />
+                <Route path="releases" element={<ProjectReleases />} />
+                <Route path="widget" element={<WidgetStudio />} />
+                <Route path="settings" element={<ProjectSettings />} />
+              </Route>
+              <Route path="/integrations" element={<IntegrationsLayout />}>
+                <Route index element={<IntegrationsOverview />} />
+                <Route path="directory" element={<IntegrationsDirectory />} />
+                <Route path="log" element={<IntegrationsLog />} />
+                <Route path=":provider" element={<IntegrationProvider />} />
+              </Route>
+              <Route path="/widget" element={<WidgetHome />} />
+              <Route path="/usage" element={<Navigate to="/settings/usage" replace />} />
+              <Route path="/settings" element={<SettingsLayout />}>
+                <Route index element={<Navigate to="general" replace />} />
+                <Route path="general" element={<GeneralSettings />} />
+                <Route path="keyboard" element={<KeyboardSettings />} />
+                <Route path="about" element={<AboutSettings />} />
+                <Route path="organisation" element={<OrganisationSettings />} />
+                <Route path="members" element={<MembersSettings />} />
+                <Route path="connections" element={<ConnectionsSettings />} />
+                <Route path="usage" element={<UsageSettings />} />
+                {hostedSettings.map(({ path, Page }) => (
+                  <Route key={path} path={path} element={page(Page)} />
+                ))}
+                <Route path="notifications" element={<NotificationSettings />} />
+                <Route path="delivery" element={<DeliverySettings />} />
+                <Route path="tokens" element={<TokensSettings />} />
+                <Route path="audit" element={<AuditSettings />} />
+                <Route path="account" element={<AccountSettings />} />
+                <Route path="appearance" element={<AppearanceSettings />} />
+                <Route path="dashboard" element={<Navigate to="/dashboard" replace />} />
+              </Route>
+              <Route path="*" element={<NotFound />} />
             </Route>
-            <Route path="/integrations" element={<IntegrationsLayout />}>
-              <Route index element={<IntegrationsOverview />} />
-              <Route path="directory" element={<IntegrationsDirectory />} />
-              <Route path="log" element={<IntegrationsLog />} />
-              <Route path=":provider" element={<IntegrationProvider />} />
-            </Route>
-            <Route path="/widget" element={<WidgetHome />} />
-            <Route path="/usage" element={<Navigate to="/settings/usage" replace />} />
-            <Route path="/settings" element={<SettingsLayout />}>
-              <Route index element={<Navigate to="general" replace />} />
-              <Route path="general" element={<GeneralSettings />} />
-              <Route path="keyboard" element={<KeyboardSettings />} />
-              <Route path="about" element={<AboutSettings />} />
-              <Route path="organisation" element={<OrganisationSettings />} />
-              <Route path="members" element={<MembersSettings />} />
-              <Route path="connections" element={<ConnectionsSettings />} />
-              <Route path="usage" element={<UsageSettings />} />
-              {hostedSettings.map(({ path, Page }) => (
-                <Route key={path} path={path} element={page(Page)} />
-              ))}
-              <Route path="notifications" element={<NotificationSettings />} />
-              <Route path="delivery" element={<DeliverySettings />} />
-              <Route path="tokens" element={<TokensSettings />} />
-              <Route path="audit" element={<AuditSettings />} />
-              <Route path="account" element={<AccountSettings />} />
-              <Route path="appearance" element={<AppearanceSettings />} />
-              <Route path="dashboard" element={<DashboardSettings />} />
-            </Route>
-            <Route path="*" element={<NotFound />} />
           </Route>
         </Route>
       </Routes>
@@ -182,6 +183,21 @@ function DocsSite() {
 function StripDocsPrefix() {
   const { pathname, hash } = useLocation();
   return <Navigate to={`${pathname.replace(/^\/docs/, "") || "/"}${hash}`} replace />;
+}
+
+/**
+ * Links inside the app move between pages without asking the server, so a
+ * "Sign in" link on the marketing site would otherwise open the dashboard
+ * on the marketing host. This leaves for the right host instead; the server
+ * does the same for addresses typed or followed from outside.
+ */
+function RightHost() {
+  const { pathname, search, hash } = useLocation();
+  const target = elsewhere(pathname, `${search}${hash}`);
+  useEffect(() => {
+    if (target) window.location.replace(target);
+  }, [target]);
+  return target ? null : <Outlet />;
 }
 
 /** Where signing in lands, which is whichever page the settings name. */

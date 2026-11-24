@@ -149,7 +149,7 @@ export type ProjectProtection = {
   block?: { ipHashes?: string[]; ips?: string[]; emails?: string[]; domains?: string[] };
 };
 
-export type ProjectLinks = { endpoint: string; formUrl: string; widgetUrl: string; docsUrl: string };
+export type ProjectLinks = { endpoint: string; webhookBase: string; formUrl: string; widgetUrl: string; docsUrl: string };
 
 export type ReportListItem = {
   id: string;

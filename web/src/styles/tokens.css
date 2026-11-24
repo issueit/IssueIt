@@ -133,9 +133,13 @@
 
   /* Padding this small is deliberate: it keeps the nav items wide and the rail
      free of dead space. --sidebar-rail is the width once it is collapsed. */
-  --sidebar-w: calc(212px * var(--zoom));
-  --sidebar-rail: calc(50px * var(--zoom));
-  --sidebar-pad: 6px;
+  --sidebar-w: calc(232px * var(--zoom));
+  --sidebar-rail: calc(58px * var(--zoom));
+  --sidebar-pad: 8px;
+  /* The main navigation reads larger than the rest of the interface: it is
+     few items in a tall column, and small rows left it mostly empty. */
+  --side-item-h: calc(40px * var(--zoom));
+  --side-fs: calc(14.5px * var(--zoom));
   --panel-w: 460px;
 }
 
@@ -217,8 +221,10 @@
   --control-h-sm: calc(23px * var(--zoom));
   --nav-item-h: calc(28px * var(--zoom));
   --page-header-h: calc(42px * var(--zoom));
-  --sidebar-w: calc(198px * var(--zoom));
-  --sidebar-pad: 5px;
+  --sidebar-w: calc(214px * var(--zoom));
+  --sidebar-pad: 6px;
+  --side-item-h: calc(34px * var(--zoom));
+  --side-fs: calc(13.5px * var(--zoom));
 }
 
 /* Interface scale, set by Appearance. Type, controls, rows and the sidebar all

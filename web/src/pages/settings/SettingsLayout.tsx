@@ -3,7 +3,6 @@ import { NavLink, Outlet } from "react-router";
 import { Input } from "../../components/ui/Field";
 import {
   BellIcon,
-  Chart2Icon,
   GlobalIcon,
   GraphUpIcon,
   HistoryIcon,
@@ -34,9 +33,8 @@ const base: Array<{ heading: string; items: Item[] }> = [
   {
     heading: "You",
     items: [
-      { to: "general", label: "General", icon: Tuning2Icon, finds: "start page sign in landing reports side panel full width status filter rows confirm delete shortcuts dates relative exact clock 24 hour week starts monday sunday time zone" },
+      { to: "general", label: "General", icon: Tuning2Icon, finds: "start page sign in landing reports side panel full width status filter rows confirm delete shortcuts dates relative exact clock 24 hour time zone" },
       { to: "appearance", label: "Appearance", icon: PaletteIcon, finds: "theme dark light system accent colour greyscale blue violet green amber interface scale zoom text size weight heavy density compact sidebar collapse" },
-      { to: "dashboard", label: "Dashboard", icon: Chart2Icon, finds: "cards order chart kind width rename key numbers kpi tiles legend gridlines animations smooth markers tooltips shares heatmap map colour scale top countries range project live compare" },
       { to: "keyboard", label: "Keyboard", icon: TextFieldIcon, finds: "shortcuts keys j k e m x escape tab enter" },
       { to: "notifications", label: "Notifications", icon: BellIcon, finds: "email alerts digest mentions assigned mute" },
       { to: "account", label: "Account", icon: UserCircleIcon, finds: "name email password two factor authentication sessions sign out delete account" },

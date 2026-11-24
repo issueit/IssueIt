@@ -7,6 +7,8 @@
  * self-hosted install on one origin working with no setting at all.
  */
 
+import { redirectFor, type Hosts } from "../../../shared/hosts";
+
 const host = typeof window === "undefined" ? "" : window.location.hostname;
 
 /** True on docs.example.com, false on example.com/docs and on localhost. */
@@ -39,4 +41,24 @@ export function appHref(path: string): string {
 /** A support article's address. Articles are always served from the app's own host. */
 export function articleHref(slug: string, locale = "en"): string {
   return appHref(`/articles/${locale}/${slug}`);
+}
+
+/**
+ * Where the dashboard and the marketing site live, as the server wrote it
+ * into the page. Absent when the page didn't come from the server (Vite in
+ * development), in which case nothing is ever sent elsewhere.
+ */
+export const siteHosts: Hosts | null = (() => {
+  if (typeof document === "undefined") return null;
+  try {
+    const raw = document.querySelector('meta[name="issueit-hosts"]')?.getAttribute("content");
+    return raw ? (JSON.parse(raw) as Hosts) : null;
+  } catch {
+    return null;
+  }
+})();
+
+/** Where this page belongs instead, if the marketing site and the dashboard live apart and it's on the wrong one. */
+export function elsewhere(pathname: string, rest: string): string | null {
+  return siteHosts ? redirectFor(siteHosts, window.location.host, pathname, rest) : null;
 }

@@ -55,7 +55,7 @@ export const countryName = (code: string) => {
 export const statusLabel: Record<string, string> = { new: "New", investigating: "Investigating", resolved: "Resolved", closed: "Closed" };
 export const priorityOrder = ["critical", "high", "medium", "low"] as const;
 export const priorityLabel: Record<string, string> = { critical: "Critical", high: "High", medium: "Medium", low: "Low" };
-export const sourceLabel = (s: string) => ({ widget: "Widget", form: "Hosted form", api: "API" })[s] ?? s.charAt(0).toUpperCase() + s.slice(1);
+export const sourceLabel = (s: string) => ({ widget: "Widget", form: "Hosted form", api: "API", roblox: "Roblox", webhook: "Webhook" })[s] ?? s.charAt(0).toUpperCase() + s.slice(1);
 
 /** Keeps the biggest `top` and folds the tail into "Other", so a chart never needs a ninth colour. */
 export function topWithOther(rows: Count[], top: number): Count[] {

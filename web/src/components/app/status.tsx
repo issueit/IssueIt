@@ -54,4 +54,4 @@ export function DeliveryPill({ status, plain }: { status: DeliveryStatus; plain?
 }
 
 export const sourceLabel = (source: string) =>
-  ({ widget: "Widget", form: "Hosted form", api: "API", test: "Test" })[source] ?? source.charAt(0).toUpperCase() + source.slice(1);
+  ({ widget: "Widget", form: "Hosted form", api: "API", test: "Test", roblox: "Roblox", webhook: "Webhook" })[source] ?? source.charAt(0).toUpperCase() + source.slice(1);

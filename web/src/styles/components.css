@@ -1226,11 +1226,11 @@ button.list-row {
 .me-switch {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   flex: 1;
   min-width: 0;
-  height: var(--nav-item-h);
-  padding: 0 6px;
+  height: var(--side-item-h);
+  padding: 0 8px;
   border-radius: var(--r-sm);
   text-align: left;
   transition: background var(--t-hover) var(--ease);
@@ -1246,12 +1246,12 @@ button.list-row {
   display: grid;
   place-items: center;
   flex: none;
-  width: 22px;
-  height: 22px;
+  width: 26px;
+  height: 26px;
   border-radius: var(--r-sm);
   background: var(--accent);
   color: var(--accent-fg);
-  font-size: var(--fs-2xs);
+  font-size: var(--fs-xs);
   font-weight: var(--fw-strong);
 }
 .me-switch__mark {
@@ -1265,7 +1265,7 @@ button.list-row {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: var(--fs-sm);
+  font-size: var(--side-fs);
   font-weight: var(--fw-strong);
 }
 
@@ -1273,8 +1273,8 @@ button.list-row {
 .sidebar__foot {
   display: flex;
   flex-direction: column;
-  gap: 1px;
-  padding: 4px var(--sidebar-pad);
+  gap: 3px;
+  padding: 6px var(--sidebar-pad);
 }
 .sidebar__foot {
   margin-top: auto;
@@ -1285,7 +1285,7 @@ button.list-row {
   border-top: 1px solid var(--border-subtle);
 }
 .me-switch {
-  height: calc(var(--nav-item-h) + 6px);
+  height: calc(var(--side-item-h) + 8px);
 }
 .me-switch__text {
   flex: 1;
@@ -1299,11 +1299,11 @@ button.list-row {
   white-space: nowrap;
 }
 .me-switch__name {
-  font-size: var(--fs-sm);
+  font-size: var(--side-fs);
   font-weight: var(--fw-medium);
 }
 .me-switch__email {
-  font-size: var(--fs-2xs);
+  font-size: var(--fs-xs);
   color: var(--text-3);
 }
 
@@ -1311,11 +1311,11 @@ button.list-row {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 9px;
-  height: var(--nav-item-h);
-  padding: 0 8px;
-  border-radius: var(--r-sm);
-  font-size: var(--fs-sm);
+  gap: 12px;
+  height: var(--side-item-h);
+  padding: 0 10px;
+  border-radius: var(--r-md);
+  font-size: var(--side-fs);
   font-weight: var(--fw-medium);
   color: var(--text-2);
   transition:
@@ -1343,9 +1343,9 @@ button.list-row {
   position: absolute;
   left: calc(var(--sidebar-pad) * -1);
   top: 50%;
-  width: 2px;
-  height: 15px;
-  margin-top: -7.5px;
+  width: 3px;
+  height: 18px;
+  margin-top: -9px;
   border-radius: 0 2px 2px 0;
   background: var(--accent);
 }
@@ -1358,11 +1358,11 @@ button.list-row {
 }
 .nav-item__count {
   flex: none;
-  min-width: 20px;
-  padding: 1px 6px;
+  min-width: 22px;
+  padding: 1px 7px;
   border-radius: 999px;
   background: var(--surface-3);
-  font-size: var(--fs-2xs);
+  font-size: var(--fs-xs);
   font-weight: var(--fw-medium);
   color: var(--text-2);
   text-align: center;

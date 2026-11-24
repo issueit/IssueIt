@@ -873,6 +873,177 @@ open();   // opens the widget's form`}
 }
 
 /**
+ * Roblox. Its game servers can't post to Discord, so most experiences send
+ * webhooks through somebody's proxy; Issueit can be that, and send the
+ * report on to everything else too.
+ */
+function Roblox() {
+  const urls = useUrls();
+  const hook = `${urls.drop}/v1/prj_abc123/webhook/sk_live_…`;
+  return (
+    <>
+      <p>
+        Discord refuses requests from Roblox game servers, so an experience that posts to a Discord webhook needs something in between. Issueit can be that: point the webhook at Issueit
+        instead, and each post becomes a report that goes to Discord <em>and</em> to anything else the project delivers to, such as GitHub, Linear or Trello, with duplicates grouped and
+        failed deliveries retried.
+      </p>
+      <p>There are two ways in. Use either, or both.</p>
+      <Facts
+        rows={[
+          ["Change the webhook address", "Keep the code you have. Anything that posts Discord-style JSON works by swapping the URL."],
+          ["The Issueit module", "A ModuleScript that sends script errors with the output before them, and lets players file reports from your own UI."],
+        ]}
+      />
+
+      <H2>Before either</H2>
+      <Steps>
+        <Step title="Allow HTTP requests">
+          <p>
+            In Studio, <strong>Game Settings › Security › Allow HTTP Requests</strong>. Requests only ever go from the server: Roblox doesn't let clients make them.
+          </p>
+        </Step>
+        <Step title="Create a secret key">
+          <p>
+            In the project, <strong>Overview › Collect reports › Roblox</strong> creates one and shows the address with it filled in. Name it after the experience, so you know what stops if you
+            revoke it.
+          </p>
+        </Step>
+        <Step title="Add a destination">
+          <p>
+            Reports go wherever the project delivers. To keep getting them in Discord, add a Discord destination to the project; it posts from Issueit's servers, which Discord accepts.
+          </p>
+        </Step>
+      </Steps>
+      <Callout kind="warning" title="The key is a password">
+        <p>
+          It only belongs in server Scripts, or in the experience's secrets read with <C>HttpService:GetSecret</C>. Never put it in a LocalScript, in ReplicatedStorage, or in a model you share.
+          If it leaks, rotate it under <strong>API keys</strong>; the old one stops working at once.
+        </p>
+      </Callout>
+
+      <H2>Change the webhook address</H2>
+      <Endpoint method="POST" path="/v1/{project_id}/webhook/{secret_key}" auth="The secret key in the path" />
+      <p>Replace the Discord URL in your game with this one. Nothing else changes.</p>
+      <Code
+        title="ServerScriptService"
+        lang="lua"
+        code={`local HttpService = game:GetService("HttpService")
+local WEBHOOK = "${hook}"
+
+HttpService:PostAsync(WEBHOOK, HttpService:JSONEncode({
+	username = "Shop",
+	embeds = {{
+		title = "Purchase failed",
+		description = "ProcessReceipt returned NotProcessedYet",
+		fields = {
+			{ name = "Player", value = player.Name },
+			{ name = "Priority", value = "high" },
+		},
+	}},
+}), Enum.HttpContentType.ApplicationJson)`}
+      />
+      <H3>How a post becomes a report</H3>
+      <Table
+        head={["From the post", "In the report"]}
+        rows={[
+          [<>The first embed's <C>title</C>, else the first line of <C>content</C></>, "Title, without its Markdown"],
+          [<>The rest of <C>content</C>, every embed's description, fields and footer</>, "Description, as Markdown"],
+          [<>A field named <C>Priority</C> or <C>Severity</C></>, <>Priority: <C>low</C>, <C>medium</C>, <C>high</C> or <C>critical</C></>],
+          [<>A field named <C>Environment</C></>, "Environment"],
+          ["Other fields", "Metadata, by field name"],
+          [<C>username</C>, "Reporter name"],
+          [<>The first embed's <C>url</C></>, "Page"],
+        ]}
+      />
+      <p>
+        Reports arrive in Discord formatted by Issueit, not as your original embed: the same title, description and fields, plus a link to the report. A post that is already an Issueit report
+        (it has a <C>title</C>) is filed as it stands.
+      </p>
+      <Params
+        rows={[
+          { name: "priority", type: "query", children: "The priority when the post doesn't name one." },
+          { name: "environment", type: "query", children: <>For example <C>studio</C> on the address your test place uses.</> },
+          { name: "source", type: "query", children: <>Defaults to <C>roblox</C> from a game server, <C>webhook</C> from anywhere else.</> },
+          { name: "wait", type: "query", children: <><C>true</C> answers 200 with the report id. Without it the answer is 204 and no body, as Discord's is.</> },
+        ]}
+      />
+      <p>
+        Multipart posts with the JSON in <C>payload_json</C> and files beside it work too; the files become attachments. A <C>GET</C> on the address checks the key without filing anything.
+        Roblox labels a body as a form unless told otherwise, so the body is read as JSON whatever its content type says.
+      </p>
+
+      <H2>The Issueit module</H2>
+      <p>
+        Copy the module from <strong>Overview › Collect reports › Roblox</strong> into a ModuleScript named <C>Issueit</C> in ReplicatedStorage, then start it from a server Script.
+      </p>
+      <Code
+        title="ServerScriptService › Issueit"
+        lang="lua"
+        code={`local Issueit = require(game.ReplicatedStorage.Issueit)
+
+Issueit.init({
+	project = "prj_abc123",
+	key = game:GetService("HttpService"):GetSecret("issueit"),
+	endpoint = "${urls.drop}",
+	playerReports = true,
+})`}
+      />
+      <p>That's enough for every server script error to arrive as a report, with the last 50 lines of server output and the server it happened on. The same error is sent once a minute per server at most, and Issueit groups the rest.</p>
+      <Params
+        rows={[
+          { name: "project", required: true, type: "string", children: "The project id." },
+          { name: "key", required: true, type: "string | Secret", children: <>A secret key, or the <C>Secret</C> that <C>HttpService:GetSecret</C> returns.</> },
+          { name: "endpoint", type: "string", children: <>Your Issueit, if you host it. Defaults to the hosted service.</> },
+          { name: "environment", type: "string", children: <><C>studio</C> in Studio, <C>production</C> elsewhere.</> },
+          { name: "release", type: "string", children: <>The place version, so every report says which build it came from.</> },
+          { name: "captureErrors", type: "boolean", children: <>Server script errors. Default <C>true</C>.</> },
+          { name: "captureLogs", type: "boolean", children: <>The last 50 lines of output, on each report. Default <C>true</C>.</> },
+          { name: "playerReports", type: "boolean", children: <>Players may file reports with <C>Issueit.send</C>. Default <C>false</C>.</> },
+          { name: "clientErrors", type: "boolean", children: <>Clients may send their own script errors. Default <C>false</C>.</> },
+          { name: "playerReportLimit", type: "table", children: <><C>{"{ count = 3, per = 600 }"}</C>: reports one player may send in that many seconds.</> },
+          { name: "beforeSend", type: "function", children: "Gets each report before it's sent; return it, changed or not, or nil to drop it." },
+        ]}
+      />
+      <H3>Reporting from the server</H3>
+      <Code
+        lang="lua"
+        code={`Issueit.report({
+	title = "DataStore save failed",
+	description = err,
+	priority = "high",
+	player = player,               -- who it happened to
+	fingerprint = "datastore:save", -- reports with the same one are grouped
+	metadata = { attempt = 3 },
+})
+
+local ok, answer = Issueit.reportAsync({ title = "..." }) -- waits for the answer`}
+      />
+      <H3>Reports from players</H3>
+      <p>Behind your own button, in a LocalScript. The server adds who sent it and from which server, checks and trims what the client sent, and limits how often one player can.</p>
+      <Code
+        title="StarterPlayerScripts"
+        lang="lua"
+        code={`local Issueit = require(game.ReplicatedStorage.Issueit)
+Issueit.startClient({ captureErrors = true }) -- client errors need clientErrors = true on the server
+
+reportButton.Activated:Connect(function()
+	Issueit.send({ title = titleBox.Text, description = detailsBox.Text, category = "Bug" })
+end)`}
+      />
+      <H3>What each report carries</H3>
+      <Facts
+        rows={[
+          ["The server", <><C>place_id</C>, <C>universe_id</C>, <C>place_version</C>, <C>job_id</C>, <C>server_kind</C> (public, private or reserved) and <C>players</C>, in metadata.</>],
+          ["The player, when there is one", <><C>player_id</C>, <C>player_name</C>, <C>player_display_name</C> and <C>account_age_days</C>, and their locale.</>],
+          ["The output", "The last 50 lines before the report, as console diagnostics. Lines the module writes itself are left out."],
+          ["Retries", <>Each report is sent with an idempotency key and retried on 429 and 5xx, so a retry never files it twice. What's queued when the server shuts down gets 20 seconds to go.</>],
+        ]}
+      />
+    </>
+  );
+}
+
+/**
  * Spam and abuse. Written as one page because the parts only make sense
  * together: a project id is public, so intake has to assume strangers.
  */
@@ -982,5 +1153,6 @@ export const collectPages: Record<string, ComponentType> = {
   "/collect/browser-tokens": BrowserTokens,
   "/collect/idempotency": Idempotency,
   "/collect/spam": Spam,
+  "/collect/roblox": Roblox,
   "/collect/sdks": Sdks,
 };

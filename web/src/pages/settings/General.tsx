@@ -128,18 +128,7 @@ export function GeneralSettings() {
             ]}
           />
         </SetRow>
-        <SetRow label="Week starts on" hint="Used wherever a week is drawn, such as when reports arrive on the dashboard.">
-          <Segmented<AppPrefs["weekStart"]>
-            ariaLabel="Week starts on"
-            value={app.weekStart}
-            onChange={(weekStart) => updateApp({ weekStart })}
-            options={[
-              { value: "mon", label: "Monday" },
-              { value: "sun", label: "Sunday" },
-            ]}
-          />
-        </SetRow>
-        <SetRow label="Time zone" hint="Taken from this device. Charts and the heatmap are drawn in it.">
+        <SetRow label="Time zone" hint="Taken from this device. Dates and the dashboard chart are drawn in it.">
           <span className="text-sm text-text-2">{Intl.DateTimeFormat().resolvedOptions().timeZone}</span>
         </SetRow>
       </SetGroup>

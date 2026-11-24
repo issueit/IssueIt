@@ -35,6 +35,7 @@ import { ingestRoutes } from "./ingest/routes";
 import { hostedFormPage, stopEmailsPage } from "./ingest/form";
 import { stopEmails, verifyStop } from "./mail/outbox";
 import { verifyAttachmentSignature } from "./delivery/payload";
+import { redirectFor } from "../shared/hosts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 /** Where the build put its output: next to the server bundle, or under the repo in development. */
@@ -51,7 +52,13 @@ const webRoot = built("web", "index.html");
 const cdnRoot = built("cdn", "widget.js");
 /** The documentation written out as Markdown, for readers that aren't browsers. Found on first use; see llmRoutes. */
 const llmRoots = distRoots.map((root) => path.join(root, "llm"));
-const indexHtml = webRoot ? fs.readFileSync(path.join(webRoot, "index.html"), "utf8") : null;
+/**
+ * The page says where the dashboard and the marketing site live, so links
+ * between them can leave for the right host without asking the server.
+ * Read synchronously by web/src/lib/hosts.ts before the router starts.
+ */
+const hostsMeta = `<meta name="issueit-hosts" content="${JSON.stringify({ app: config.appUrl, marketing: config.marketingUrl }).replace(/"/g, "&quot;")}">`;
+const indexHtml = webRoot ? fs.readFileSync(path.join(webRoot, "index.html"), "utf8").replace("</head>", `${hostsMeta}</head>`) : null;
 
 const DASHBOARD_CSP = [
   "default-src 'self'",
@@ -82,7 +89,8 @@ export function createApp() {
       const error = { code: err.code, message: err.message, ...(err.details ? { details: err.details } : {}) };
       return c.json(isIngest ? { success: false, error } : { error }, err.status);
     }
-    console.error("[http]", c.req.method, c.req.path, err);
+    // A webhook address carries its secret key in the path; it doesn't belong in a log.
+    console.error("[http]", c.req.method, c.req.path.replace(/\/webhook\/[^/]+/, "/webhook/[key]"), err);
     const error = { code: "server_error", message: "Something went wrong on our side. Try again in a moment." };
     return c.json(isIngest ? { success: false, error } : { error }, 500);
   });
@@ -264,7 +272,18 @@ export function createApp() {
       await next();
       if (c.res.status === 200) c.header("cache-control", "public, max-age=31536000, immutable");
     });
+    const hosts = { app: config.appUrl, marketing: config.marketingUrl };
     const spa = (c: Context) => {
+      /**
+       * The marketing site and the dashboard have a host each when they are
+       * configured apart: issueit.app answers only marketing pages, and
+       * dash.issueit.app only the dashboard. A page asked for on the wrong
+       * one is sent to the right one, query and all.
+       */
+      const host = (config.trustProxy && c.req.header("x-forwarded-host")) || c.req.header("host") || "";
+      const url = new URL(c.req.url);
+      const elsewhere = redirectFor(hosts, host.split(",")[0].trim(), url.pathname, url.search);
+      if (elsewhere) return c.redirect(elsewhere, url.pathname === "/" ? 302 : 301);
       c.header("content-security-policy", DASHBOARD_CSP);
       c.header("cache-control", "no-cache");
       return c.html(indexHtml);

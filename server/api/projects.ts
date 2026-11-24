@@ -196,6 +196,8 @@ const rulesSchema = z.object({
 export function projectLinks(id: string) {
   return {
     endpoint: `${config.dropUrl}/v1/${id}/reports`,
+    /** Discord-compatible: a secret key goes on the end. For Roblox games and other webhook code. */
+    webhookBase: `${config.dropUrl}/v1/${id}/webhook`,
     formUrl: `${config.appUrl}/r/${id}`,
     widgetUrl: `${config.cdnUrl}/widget.js`,
     docsUrl: config.docsUrl,
