@@ -28,7 +28,6 @@ async function throttle(key: string, max = 10, windowMs = 60_000) {
 
 export const authRoutes = new Hono<AppEnv>()
   .post("/signup", async (c) => {
-    if (!config.allowSignup) throw forbidden("Sign-ups are closed on this server. Ask an owner for an invitation.");
     await throttle(`signup:${clientIp(c)}`, 5);
     /**
      * A trial is worth something, so a new organisation every few minutes
@@ -46,6 +45,20 @@ export const authRoutes = new Hono<AppEnv>()
         invitation: z.string().optional(),
       }),
     );
+    /**
+     * An invitation is someone vouching for this person, so it opens the
+     * door even when sign-ups are closed — otherwise inviting a colleague
+     * who has no account yet could never work. It has to be live, and for
+     * this address: a link forwarded to someone else is not an invitation.
+     */
+    let invited = false;
+    if (input.invitation) {
+      const inv = await db.query.invitations.findFirst({ where: eq(schema.invitations.tokenHash, sha256(input.invitation)) });
+      if (!inv || inv.acceptedAt || inv.expiresAt < new Date()) throw badRequest("This invitation has expired or has already been used. Ask for a new one.");
+      if (inv.email.toLowerCase() !== input.email.toLowerCase()) throw badRequest(`This invitation was sent to ${inv.email}. Sign up with that address, or ask for an invitation to this one.`);
+      invited = true;
+    }
+    if (!config.allowSignup && !invited) throw forbidden("Sign-ups are closed on this server. Ask an owner for an invitation.");
     // An address nobody keeps can't be written to, so nothing that follows —
     // verifying it, telling someone their allowance is gone — would ever
     // arrive. Invited people are exempt: somebody already vouched for them.
