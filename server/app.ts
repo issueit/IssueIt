@@ -35,7 +35,7 @@ import { ingestRoutes } from "./ingest/routes";
 import { hostedFormPage, stopEmailsPage } from "./ingest/form";
 import { stopEmails, verifyStop } from "./mail/outbox";
 import { verifyAttachmentSignature } from "./delivery/payload";
-import { redirectFor } from "../shared/hosts";
+import { isAppHost, isAppPath, redirectFor } from "../shared/hosts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 /** Where the build put its output: next to the server bundle, or under the repo in development. */
@@ -72,6 +72,15 @@ const DASHBOARD_CSP = [
   "base-uri 'none'",
   "form-action 'self'",
 ].join("; ");
+
+/**
+ * The dashboard's own report widget, when DASHBOARD_WIDGET_PROJECT is set.
+ * It loads from the CDN and sends to wherever it loaded from, so that one
+ * origin joins the page's scripts and connections — on dashboard pages only.
+ */
+const widgetOrigin = new URL(config.cdnUrl).origin;
+const widgetTag = config.dashboardWidgetProject ? `<script src="${config.cdnUrl}/widget.js" data-project="${config.dashboardWidgetProject}" defer></script>` : "";
+const WIDGET_CSP = DASHBOARD_CSP.replace("script-src 'self'", `script-src 'self' ${widgetOrigin}`).replace("connect-src 'self'", `connect-src 'self' ${widgetOrigin}`);
 
 export function createApp() {
   const app = new Hono();
@@ -273,6 +282,7 @@ export function createApp() {
       if (c.res.status === 200) c.header("cache-control", "public, max-age=31536000, immutable");
     });
     const hosts = { app: config.appUrl, marketing: config.marketingUrl, others: [config.dropUrl, config.cdnUrl] };
+    const dashboardHtml = widgetTag ? indexHtml.replace("</body>", `${widgetTag}\n</body>`) : null;
     const spa = (c: Context) => {
       /**
        * The marketing site and the dashboard have a host each when they are
@@ -284,8 +294,13 @@ export function createApp() {
       const url = new URL(c.req.url);
       const elsewhere = redirectFor(hosts, host.split(",")[0].trim(), url.pathname, url.search);
       if (elsewhere) return c.redirect(elsewhere, url.pathname === "/" ? 302 : 301);
-      c.header("content-security-policy", DASHBOARD_CSP);
       c.header("cache-control", "no-cache");
+      // The dashboard's own pages: everything on its host, or its paths where one host serves all.
+      if (widgetTag && (isAppHost(hosts, host.split(",")[0].trim()) ?? isAppPath(url.pathname))) {
+        c.header("content-security-policy", WIDGET_CSP);
+        return c.html(dashboardHtml!);
+      }
+      c.header("content-security-policy", DASHBOARD_CSP);
       return c.html(indexHtml);
     };
     app.get("/", spa);

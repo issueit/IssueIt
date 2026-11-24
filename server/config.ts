@@ -47,6 +47,15 @@ export const config = {
   cdnUrl: trimSlash(str("CDN_URL", appUrl)),
   docsUrl: trimSlash(str("DOCS_URL", `${appUrl}/docs`)),
   marketingUrl: trimSlash(str("MARKETING_URL", appUrl)),
+  /**
+   * An Issueit project of your own to report the dashboard's bugs to. When
+   * set, every dashboard page carries the widget for it. Off by default:
+   * nobody else's install should be sending its bugs to anyone.
+   */
+  dashboardWidgetProject: (() => {
+    const id = optional("DASHBOARD_WIDGET_PROJECT")?.trim();
+    return id && /^prj_[a-z0-9]{4,40}$/i.test(id) ? id : null;
+  })(),
   cookieSecure: appUrl.startsWith("https://"),
   trustProxy: bool("TRUST_PROXY", false),
   /**

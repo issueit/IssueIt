@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isAppPath, redirectFor } from "./hosts";
+import { isAppHost, isAppPath, redirectFor } from "./hosts";
 
 const split = { app: "https://dash.issueit.app", marketing: "https://issueit.app", others: ["https://drop.issueit.app", "https://cdn.issueit.app"] };
 
@@ -49,5 +49,13 @@ describe("redirectFor", () => {
     const one = { app: "https://bugs.example.com", marketing: "https://bugs.example.com" };
     expect(redirectFor(one, "bugs.example.com", "/dashboard")).toBeNull();
     expect(redirectFor(one, "10.0.0.5:8380", "/dashboard")).toBeNull();
+  });
+});
+
+describe("isAppHost", () => {
+  it("answers on a split install, and defers to the path on a single one", () => {
+    expect(isAppHost(split, "dash.issueit.app")).toBe(true);
+    expect(isAppHost(split, "issueit.app")).toBe(false);
+    expect(isAppHost({ app: "https://bugs.example.com", marketing: "https://bugs.example.com" }, "bugs.example.com")).toBeNull();
   });
 });

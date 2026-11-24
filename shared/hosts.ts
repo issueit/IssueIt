@@ -71,3 +71,15 @@ export function redirectFor(hosts: Hosts, host: string, path: string, rest = "")
   if (here === app && path === "/") return `${hosts.app}/start${rest}`;
   return `${hosts.marketing}${path}${rest}`;
 }
+
+/**
+ * Whether a request is on the dashboard's own host: true or false when the
+ * install splits its hosts, null when one host serves everything and the
+ * path has to decide.
+ */
+export function isAppHost(hosts: Hosts, host: string): boolean | null {
+  const app = hostOf(hosts.app);
+  const marketing = hostOf(hosts.marketing);
+  if (!app || !marketing || app === marketing) return null;
+  return host.toLowerCase() === app;
+}
