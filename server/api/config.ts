@@ -9,6 +9,7 @@ import { newId } from "../lib/ids";
 import { checkUrlShape, UnsafeUrlError } from "../lib/ssrf";
 import { compilePatterns, scrubText } from "../lib/scrub";
 import { checkRules } from "../lib/rules";
+import { channelsSchema, unknownChannels } from "../lib/channels";
 import { fingerprintFor, normalisePath, normaliseTitle } from "../ingest/grouping";
 import { body, type AppEnv } from "../http";
 import { getProvider } from "../integrations";
@@ -30,6 +31,7 @@ const ruleSchema = z.object({
   priorities: z.array(z.string()).max(4).optional(),
   sources: z.array(z.string()).max(20).optional(),
   environments: z.array(z.string()).max(20).optional(),
+  channels: z.array(z.string()).max(20).optional(),
 });
 
 const destinationDoc = z.object({
@@ -54,6 +56,8 @@ const configDoc = z.object({
   publicSubmissions: z.boolean().optional(),
   allowedOrigins: z.array(z.string().trim().max(200)).max(50).optional(),
   groupDuplicates: z.boolean().optional(),
+  /** Named ways in, each with its own webhook address. Destinations join them through rule.channels. */
+  channels: channelsSchema.optional(),
   rules: z.record(z.string(), z.unknown()).optional(),
   // Shape only. The fields inside are checked in the handler, against the
   // very schemas the dashboard's own endpoint uses: this file is another way
@@ -114,6 +118,7 @@ export const configRoutes = new Hono<AppEnv>()
       publicSubmissions: project.publicSubmissions,
       allowedOrigins: project.allowedOrigins,
       groupDuplicates: project.groupDuplicates,
+      channels: project.channels,
       rules: project.rules,
       // Only what differs from the defaults, so the file stays readable.
       widget: Object.fromEntries(Object.entries(widget).filter(([k, v]) => JSON.stringify(v) !== JSON.stringify((defaultWidgetConfig as Record<string, unknown>)[k]))),
@@ -170,6 +175,8 @@ export const configRoutes = new Hono<AppEnv>()
     compare("publicSubmissions", project.publicSubmissions, "anonymous reports");
     compare("allowedOrigins", project.allowedOrigins, "allowed sites");
     compare("groupDuplicates", project.groupDuplicates, "duplicate grouping");
+    compare("channels", project.channels, "channels");
+    const channelsAfter = doc.channels ?? project.channels;
 
     if (doc.rules) {
       const problemsHere = checkRules(doc.rules as ProjectRules);
@@ -206,6 +213,11 @@ export const configRoutes = new Hono<AppEnv>()
 
     for (const want of doc.destinations ?? []) {
       named.add(want.name.toLowerCase());
+      const strays = unknownChannels(want.rule?.channels, channelsAfter);
+      if (strays.length) {
+        problems.push(`"${want.name}": there's no channel called "${strays[0]}". Add it under "channels".`);
+        continue;
+      }
       const provider = getProvider(want.provider);
       if (!provider) {
         problems.push(`"${want.name}": Issueit doesn't support a service called "${want.provider}".`);

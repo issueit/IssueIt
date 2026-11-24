@@ -46,6 +46,8 @@ export type ReportPayload = {
   priority: Priority;
   source: string;
   environment: string | null;
+  /** Which of the project's channels it was sent to, if any. */
+  channel?: string | null;
   pageUrl: string | null;
   browser: string | null;
   context: ReportContext;

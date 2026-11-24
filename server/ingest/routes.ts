@@ -71,6 +71,8 @@ const reportInput = z.object({
     .optional()
     .nullable(),
   environment: shortText(40),
+  /** One of the project's channels, which decides the destinations. The webhook address can carry it instead. */
+  channel: shortText(40),
   /** Which build this happened on, so a minified stack can be symbolicated. */
   release: shortText(80),
   /** Your own key for this submission; sending it twice files one report. */
@@ -210,15 +212,25 @@ export const ingestRoutes = new Hono()
    * address. Built for Roblox, whose game servers Discord refuses, but any
    * caller that speaks Discord's shape is welcome. See webhook.ts.
    */
-  .get("/:project/webhook/:key", async (c) => {
+  .get("/:project/webhook/:key/:channel?", async (c) => {
     const project = await projectFor(c.req.param("project"));
     await hookCaller(c, project);
-    return c.json({ id: project.id, name: project.name, type: 1, issueit: true, message: "This webhook files reports into Issueit. POST Discord-style JSON, or an Issueit report, to it." });
+    const channel = channelFor(project, c.req.param("channel"));
+    return c.json({
+      id: project.id,
+      name: channel ? `${project.name} · ${channel.name}` : project.name,
+      type: 1,
+      issueit: true,
+      channel: channel?.slug ?? null,
+      message: "This webhook files reports into Issueit. POST Discord-style JSON, or an Issueit report, to it.",
+    });
   })
-  .post("/:project/webhook/:key", intakeBodyLimit, async (c) => {
+  .post("/:project/webhook/:key/:channel?", intakeBodyLimit, async (c) => {
     const project = await projectFor(c.req.param("project"));
     const caller = await hookCaller(c, project);
+    const channel = channelFor(project, c.req.param("channel"));
     const defaults: HookDefaults = {
+      channel: channel?.slug,
       priority: c.req.query("priority") || undefined,
       environment: c.req.query("environment") || undefined,
       source: c.req.query("source") || (isRobloxAgent(c.req.header("user-agent")) ? "roblox" : "webhook"),
@@ -261,6 +273,15 @@ async function authenticate(c: Context, project: Project, auth: string | undefin
     throw new AppError(403, "origin_not_allowed", "Reports from this site aren't allowed for this project.");
   }
   return { viaKeyId: null, viaBrowserToken: false };
+}
+
+/** A channel named in an address or a report, which must be one of the project's. */
+function channelFor(project: Project, slug: string | null | undefined) {
+  const wanted = (slug ?? "").trim().toLowerCase();
+  if (!wanted) return null;
+  const channel = project.channels.find((ch) => ch.slug === wanted);
+  if (!channel) throw new AppError(404, "unknown_channel", `This project has no channel called "${wanted.slice(0, 40)}". Add it in the project's Roblox settings, or check the address.`);
+  return channel;
 }
 
 /** A webhook address carries a secret key and nothing else: no browser tokens, no anonymous posts. */
@@ -323,6 +344,15 @@ async function fileReport(c: Context, project: Project, caller: Caller, read: Re
   if (allowance.grace) void warnAboutUsage(org, allowance);
 
   const { input, files } = await read();
+  const inChannel = channelFor(project, input.channel);
+  const channel = inChannel?.slug ?? null;
+  /**
+   * Repeats join an open report's group instead of being delivered again —
+   * unless the channel says every post matters, as a log of purchases does.
+   * Groups never cross channels: each goes to its own destinations.
+   */
+  const grouping = project.groupDuplicates && !inChannel?.deliverRepeats;
+  const sameChannel = channel ? eq(schema.reports.channel, channel) : isNull(schema.reports.channel);
 
   /**
    * The same submission twice — a retry after a timeout, a queue that
@@ -447,7 +477,7 @@ async function fileReport(c: Context, project: Project, caller: Caller, read: Re
   const quarantined = !!verdict?.spam;
 
   if (dryRun) {
-    const [openGroup] = fingerprint && project.groupDuplicates && !quarantined
+    const [openGroup] = fingerprint && grouping && !quarantined
       ? await db
           .select({ id: schema.reports.id, number: schema.reports.number, title: schema.reports.title, duplicateCount: schema.reports.duplicateCount })
           .from(schema.reports)
@@ -455,6 +485,7 @@ async function fileReport(c: Context, project: Project, caller: Caller, read: Re
             and(
               eq(schema.reports.projectId, project.id),
               eq(schema.reports.fingerprint, fingerprint),
+              sameChannel,
               isNull(schema.reports.groupId),
               sql`${schema.reports.status} in ('new', 'investigating')`,
             ),
@@ -462,7 +493,7 @@ async function fileReport(c: Context, project: Project, caller: Caller, read: Re
           .limit(1)
       : [];
     const destinations = await db.query.destinations.findMany({ where: and(eq(schema.destinations.projectId, project.id), eq(schema.destinations.enabled, true)) });
-    const shaped = { priority, source, environment: input.environment || null };
+    const shaped = { priority, source, environment: input.environment || null, channel };
     const routed = destinations.map((d) => {
       const provider = getProvider(d.provider);
       const wouldDeliver = !!provider && provider.events.includes("report.created") && d.events.includes("report.created") && matchesRule(d.rule, shaped);
@@ -484,7 +515,7 @@ async function fileReport(c: Context, project: Project, caller: Caller, read: Re
     return { status: 200, body: {
       success: true,
       dry_run: true,
-      report: { title: input.title, priority, source, environment: shaped.environment, page_url: pageUrl, release: input.release ?? null, country },
+      report: { title: input.title, priority, source, environment: shaped.environment, channel, page_url: pageUrl, release: input.release ?? null, country },
       fingerprint,
       duplicate_of: openGroup ? { id: openGroup.id, number: openGroup.number, title: openGroup.title, seen: openGroup.duplicateCount + 1 } : null,
       diagnostics,
@@ -511,12 +542,12 @@ async function fileReport(c: Context, project: Project, caller: Caller, read: Re
         .where(eq(schema.projects.id, project.id))
         .returning({ n: schema.projects.reportSeq });
       // The same bug, still open: join its group. The lock keeps two at once from both starting one.
-      if (fingerprint && project.groupDuplicates && !quarantined) {
-        await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`${project.id}:${fingerprint}`}))`);
+      if (fingerprint && grouping && !quarantined) {
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`${project.id}:${channel ?? ""}:${fingerprint}`}))`);
         const [open] = await tx
           .select()
           .from(schema.reports)
-          .where(and(eq(schema.reports.projectId, project.id), eq(schema.reports.fingerprint, fingerprint), isNull(schema.reports.groupId), sql`${schema.reports.status} in ('new', 'investigating')`))
+          .where(and(eq(schema.reports.projectId, project.id), eq(schema.reports.fingerprint, fingerprint), sameChannel, isNull(schema.reports.groupId), sql`${schema.reports.status} in ('new', 'investigating')`))
           .orderBy(sql`${schema.reports.createdAt} desc`)
           .limit(1);
         if (open) {
@@ -541,6 +572,7 @@ async function fileReport(c: Context, project: Project, caller: Caller, read: Re
           status: lead?.status ?? "new",
           source,
           environment: input.environment || null,
+          channel,
           release: input.release || null,
           idempotencyKey,
           pageUrl,

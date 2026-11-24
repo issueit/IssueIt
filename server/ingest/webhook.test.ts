@@ -71,3 +71,11 @@ describe("isRobloxAgent", () => {
     expect(isRobloxAgent(undefined)).toBe(false);
   });
 });
+
+describe("channels in a webhook post", () => {
+  it("come from the address, and a body can't move itself to another", () => {
+    expect(fromDiscord({ content: "x" }, { channel: "shop" }).channel).toBe("shop");
+    expect(withDefaults({ title: "t", channel: "admin" }, { channel: "shop" }).channel).toBe("shop");
+    expect(withDefaults({ title: "t", channel: "admin" }, {}).channel).toBe("admin");
+  });
+});

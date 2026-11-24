@@ -209,6 +209,7 @@ local function build(report)
 		priority = report.priority,
 		source = "roblox",
 		environment = report.environment or options.environment,
+		channel = report.channel or options.channel,
 		release = options.release,
 		fingerprint = clip(report.fingerprint, 200),
 		name = player and player.Name or nil,
@@ -246,6 +247,7 @@ end
 		priority = "high",          -- low, medium, high or critical
 		player = player,            -- optional: who it happened to
 		fingerprint = "shop:receipt",-- optional: reports with the same one are grouped
+		channel = "shop",           -- optional: one of the project's channels, which decides where it goes
 		metadata = { product = 12345 },
 	})
 ]]
@@ -295,6 +297,7 @@ local function captureError(message, stack, origin, player)
 		description = table.concat(parts, "\n\n"),
 		priority = "high",
 		player = player,
+		channel = options.errorChannel,
 		fingerprint = text:sub(1, 200),
 		logs = console,
 		metadata = where and { script = where } or nil,
@@ -364,6 +367,7 @@ local function fromClient(player, kind, data)
 		description = clip(data.description, 4000),
 		priority = if type(data.priority) == "string" and priorities[data.priority] then data.priority else nil,
 		player = player,
+		channel = options.playerChannel,
 		logs = console,
 		metadata = { reported_from = "in-game", category = clip(data.category, 60) },
 	})
@@ -383,6 +387,9 @@ end
 	clientErrors    let clients send their script errors with Issueit.startClient({ captureErrors = true }). Default false.
 	errorCooldown   seconds before the same error is sent again from this server. Default 60.
 	playerReportLimit { count = 3, per = 600 }: reports one player may send in that many seconds.
+	channel         the project channel reports go to unless they name another. Default: none.
+	errorChannel    the channel for captured script errors, e.g. "errors". Default: channel.
+	playerChannel   the channel for reports players send, e.g. "player-reports". Default: channel.
 	beforeSend      function(payload) returning the payload to send, or nil to drop it.
 ]]
 function Issueit.init(config)
@@ -411,6 +418,9 @@ function Issueit.init(config)
 		playerReportLimit = config.playerReportLimit or { count = 3, per = 600 },
 		clientErrorLimit = { count = 5, per = 60 },
 		beforeSend = config.beforeSend,
+		channel = config.channel,
+		errorChannel = config.errorChannel or config.channel,
+		playerChannel = config.playerChannel or config.channel,
 	}
 
 	if options.captureLogs then

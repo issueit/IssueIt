@@ -2,7 +2,8 @@ import { Hono } from "hono";
 import { and, desc, eq, inArray, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "../db";
-import { priorities, webhookEvents, type RoutingRule } from "../db/schema";
+import { priorities, webhookEvents, type ProjectChannel, type RoutingRule } from "../db/schema";
+import { channelSlug, unknownChannels } from "../lib/channels";
 import { decryptJson, encryptJson, randomToken } from "../lib/crypto";
 import { publish } from "../lib/events";
 import { AppError, badRequest, notFound } from "../lib/errors";
@@ -108,6 +109,7 @@ const ruleSchema = z.object({
   priorities: z.array(z.enum(priorities)).max(4).optional(),
   sources: z.array(z.string().trim().min(1).max(40)).max(20).optional(),
   environments: z.array(z.string().trim().min(1).max(40)).max(20).optional(),
+  channels: z.array(channelSlug).max(20).optional(),
 });
 
 const destinationInput = z.object({
@@ -146,9 +148,13 @@ function checkWebhookUrl(url: string | undefined) {
   }
 }
 
-const cleanRule = (rule: RoutingRule | undefined): RoutingRule => {
+/** A rule as stored: empty lists dropped, and channels only ones this project has. */
+const cleanRule = (rule: RoutingRule | undefined, project: { channels: ProjectChannel[] }): RoutingRule => {
   if (!rule) return {};
+  const unknown = unknownChannels(rule.channels, project.channels);
+  if (unknown.length) throw badRequest(`rule.channels: This project has no channel called "${unknown[0]}".`);
   const out: RoutingRule = {};
+  if (rule.channels?.length) out.channels = [...new Set(rule.channels)];
   if (rule.priorities?.length) out.priorities = rule.priorities;
   if (rule.sources?.length) out.sources = rule.sources;
   if (rule.environments?.length) out.environments = rule.environments;
@@ -329,7 +335,7 @@ export const destinationRoutes = new Hono<AppEnv>()
       target,
       secrets,
       events,
-      rule: cleanRule(input.rule),
+      rule: cleanRule(input.rule, project),
       policy: input.policy ?? {},
     });
     const d = await loadDestination(project.id, id);
@@ -348,7 +354,7 @@ export const destinationRoutes = new Hono<AppEnv>()
     }
     if (input.policy) set.policy = input.policy;
     if (input.syncState !== undefined) set.syncState = input.syncState;
-    if (input.rule) set.rule = cleanRule(input.rule);
+    if (input.rule) set.rule = cleanRule(input.rule, project);
     if (input.events) set.events = input.events.filter((e) => provider.events.includes(e));
     if (input.target || input.labels) set.target = { ...d.target, ...input.target, ...(input.labels ? { labels: input.labels } : {}) };
     if ((input.url !== undefined || input.headers !== undefined) && provider.kind === "webhook") {

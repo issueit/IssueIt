@@ -22,7 +22,7 @@ type Embed = {
   fields?: Array<{ name?: unknown; value?: unknown }>;
 };
 
-export type HookDefaults = { priority?: string; environment?: string; source?: string };
+export type HookDefaults = { priority?: string; environment?: string; source?: string; channel?: string };
 
 const text = (v: unknown) => (typeof v === "string" ? v.trim() : typeof v === "number" ? String(v) : "");
 
@@ -108,6 +108,7 @@ export function fromDiscord(raw: Record<string, unknown>, defaults: HookDefaults
     priority: settings.priority || defaults.priority || undefined,
     environment: settings.environment || defaults.environment || undefined,
     source: defaults.source,
+    channel: defaults.channel,
     name: username || undefined,
     page_url: /^https?:\/\//i.test(leadUrl) ? leadUrl.slice(0, 2000) : undefined,
     metadata,
@@ -121,6 +122,8 @@ export function withDefaults(raw: Record<string, unknown>, defaults: HookDefault
     priority: raw.priority ?? raw.severity ?? defaults.priority,
     environment: raw.environment ?? defaults.environment,
     source: raw.source ?? defaults.source,
+    // The address names the channel; a body can't send it somewhere else.
+    ...(defaults.channel ? { channel: defaults.channel } : {}),
   };
 }
 

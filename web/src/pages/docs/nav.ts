@@ -40,7 +40,7 @@ export const groups: DocGroup[] = [
       { slug: "/collect/browser-tokens", title: "Browser tokens", summary: "Short-lived tokens so a single-page app can report while the project stays closed.", keywords: "it_ token spa short lived mint public" },
       { slug: "/collect/idempotency", title: "Idempotency and dry runs", summary: "Send the same report twice safely, and find out what would happen without storing anything.", keywords: "idempotency-key replay dry_run test retry queue" },
       { slug: "/collect/spam", title: "Spam and abuse", summary: "A public project id invites strangers: what intake refuses, what it holds back rather than delivering, and how to release it.", keywords: "spam abuse honeypot rate limit block blocked reporter quarantine held link farm throttle" },
-      { slug: "/collect/roblox", title: "Roblox", summary: "A webhook address Roblox game servers can post to, and a Luau module for script errors and in-game reports.", keywords: "roblox luau httpservice discord webhook proxy game experience studio remoteevent" },
+      { slug: "/collect/roblox", title: "Roblox", summary: "A webhook address Roblox game servers can post to, and a Luau module for script errors and in-game reports.", keywords: "roblox luau httpservice discord webhook proxy game experience studio remoteevent channels multiple webhooks" },
       { slug: "/collect/sdks", title: "SDKs", summary: "@issueit/node for servers and @issueit/react for an error boundary that files the bug.", keywords: "npm package express hono fastify error boundary react node" },
     ],
   },

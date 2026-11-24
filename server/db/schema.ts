@@ -446,6 +446,11 @@ export const projects = pgTable(
     groupDuplicates: boolean("group_duplicates").notNull().default(true),
     /** Grouping and redaction rules of this project's own. */
     rules: jsonb("rules").$type<ProjectRules>().notNull().default({}),
+    /**
+     * Named ways in, each with its own webhook address and its own
+     * destinations: /v1/{project}/webhook/{key}/{slug}. See RoutingRule.channels.
+     */
+    channels: jsonb("channels").$type<ProjectChannel[]>().notNull().default([]),
     /** Spam handling and blocked reporters. See ProjectProtection. */
     protection: jsonb("protection").$type<ProjectProtection>().notNull().default({}),
     reportSeq: integer("report_seq").notNull().default(0),
@@ -630,6 +635,8 @@ export const reports = pgTable(
     priority: text("priority").$type<Priority>().notNull().default("medium"),
     source: text("source").notNull().default("api"),
     environment: text("environment"),
+    /** Which of the project's channels it was sent to, if any. Decides which destinations get it. */
+    channel: text("channel"),
     pageUrl: text("page_url"),
     browser: text("browser"),
     context: jsonb("context").$type<ReportContext>().notNull().default({}),
@@ -852,11 +859,26 @@ export const connections = pgTable(
   (t) => [index("connections_org_idx").on(t.orgId)],
 );
 
+/** A named way into a project. The slug is in the address, so it never changes; the name can. */
+export type ProjectChannel = {
+  slug: string;
+  name: string;
+  /** Deliver every post, even one that repeats an open report. For logs, where each line matters. */
+  deliverRepeats?: boolean;
+};
+
 export type RoutingRule = {
   /** Empty or missing means "any". */
   priorities?: Priority[];
   sources?: string[];
   environments?: string[];
+  /**
+   * The project's channels this destination belongs to. Unlike the others,
+   * empty doesn't mean "any": a destination in no channel takes reports
+   * sent to no channel, and one in channels takes only theirs. So a game
+   * can post shop logs to one Discord and bugs to another.
+   */
+  channels?: string[];
 };
 
 /**

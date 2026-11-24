@@ -81,7 +81,7 @@ const docs: Record<string, ApiDoc> = {
   "GET /projects": { tag: "Projects", summary: "List projects with their counts" },
   "POST /projects": { tag: "Projects", summary: "Create a project", body: z.object({ name: str(), description: str().nullable().optional() }) },
   "GET /projects/:project": { tag: "Projects", summary: "One project, its widget settings and intake addresses" },
-  "PATCH /projects/:project": { tag: "Projects", summary: "Change a project", description: "Send only what changes: name, description, allowedOrigins, publicSubmissions, groupDuplicates, widget, emails." },
+  "PATCH /projects/:project": { tag: "Projects", summary: "Change a project", description: "Send only what changes: name, description, allowedOrigins, publicSubmissions, groupDuplicates, widget, emails, channels. channels replaces the whole list; a channel left out is removed and its destinations leave it." },
   "DELETE /projects/:project": { tag: "Projects", summary: "Delete a project and its reports" },
   "POST /projects/:project/logo": { tag: "Projects", summary: "Upload the widget's logo" },
   "DELETE /projects/:project/logo": { tag: "Projects", summary: "Remove the widget's logo" },

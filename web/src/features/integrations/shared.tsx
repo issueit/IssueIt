@@ -28,6 +28,11 @@ export function targetSummary(d: Pick<Destination, "provider" | "target" | "webh
 }
 
 export function ruleSummary(rule: RoutingRule): string {
+  const channels = rule.channels?.length ? ` (${rule.channels.length === 1 ? "channel" : "channels"} ${rule.channels.join(", ")})` : "";
+  return filterSummary(rule) + channels;
+}
+
+function filterSummary(rule: RoutingRule): string {
   if (!rule.priorities?.length && !rule.sources?.length && !rule.environments?.length) return "All new reports";
   const names = (["critical", "high", "medium", "low"] as Priority[]).filter((p) => rule.priorities?.includes(p)).map((p) => priorityLabels[p].toLowerCase());
   let text = names.length ? `Only ${names.join(" and ")} priority reports` : "Only reports";
@@ -54,7 +59,8 @@ export function RoutingFields({ rule, onChange }: { rule: RoutingRule; onChange:
         columns={2}
         onChange={(m) => {
           setMode(m);
-          if (m === "all") onChange({});
+          // Channels are set from the project's Roblox settings, not here, so they stay.
+          if (m === "all") onChange(rule.channels?.length ? { channels: rule.channels } : {});
           else if (!rule.priorities?.length) onChange({ ...rule, priorities: ["critical", "high"] });
         }}
         options={[

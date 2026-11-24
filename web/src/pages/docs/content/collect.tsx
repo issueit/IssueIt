@@ -972,6 +972,42 @@ HttpService:PostAsync(WEBHOOK, HttpService:JSONEncode({
         Roblox labels a body as a form unless told otherwise, so the body is read as JSON whatever its content type says.
       </p>
 
+      <H2>Channels: several webhooks from one game</H2>
+      <p>
+        A game that posts to several Discord webhooks — bug reports to one channel, purchases to another, moderation to a third — gets a channel in Issueit for each. Every channel has
+        its own address, and you choose which destinations it goes to.
+      </p>
+      <Code title="One address per channel" lang="text" code={`${hook}           ← the default address
+${hook}/shop      ← the Shop channel
+${hook}/admin     ← the Admin channel`} />
+      <Steps>
+        <Step title="Add the destinations">
+          <p>One per place posts should end up, such as a Discord destination for each Discord webhook the game used before.</p>
+        </Step>
+        <Step title="Add a channel for each">
+          <p>
+            In <strong>Overview › Collect reports › Roblox</strong>, <strong>Add channel</strong>, then tick the destinations it sends to. The address ends in the channel's name and doesn't
+            change if you rename it.
+          </p>
+        </Step>
+        <Step title="Swap each URL in the game">
+          <p>Each Discord URL in your scripts becomes the address of its channel.</p>
+        </Step>
+      </Steps>
+      <Facts
+        rows={[
+          ["A destination in a channel", "Gets only that channel's posts. It can be in several channels."],
+          ["A destination in no channel", "Gets what's sent to the default address, the widget, the hosted form and the API — as before channels existed."],
+          ["Deliver every post", <>On for a new channel. A log of purchases wants every line; turn it off and repeats of an open report group into it instead, as bug reports do.</>],
+          ["Groups", "Never cross channels: a report only joins a group in its own channel."],
+          ["An address with a channel that doesn't exist", <>Is refused with <C>404 unknown_channel</C>, so a typo shows up rather than vanishing.</>],
+        ]}
+      />
+      <p>
+        The intake API and the module take a <C>channel</C> too: <C>{'"channel": "shop"'}</C> in a report, or <C>channel</C>, <C>errorChannel</C> and <C>playerChannel</C> in{" "}
+        <C>Issueit.init</C>.
+      </p>
+
       <H2>The Issueit module</H2>
       <p>
         Copy the module from <strong>Overview › Collect reports › Roblox</strong> into a ModuleScript named <C>Issueit</C> in ReplicatedStorage, then start it from a server Script.
@@ -1001,6 +1037,9 @@ Issueit.init({
           { name: "playerReports", type: "boolean", children: <>Players may file reports with <C>Issueit.send</C>. Default <C>false</C>.</> },
           { name: "clientErrors", type: "boolean", children: <>Clients may send their own script errors. Default <C>false</C>.</> },
           { name: "playerReportLimit", type: "table", children: <><C>{"{ count = 3, per = 600 }"}</C>: reports one player may send in that many seconds.</> },
+          { name: "channel", type: "string", children: "The project channel reports go to, unless one names another." },
+          { name: "errorChannel", type: "string", children: <>The channel for captured script errors. Defaults to <C>channel</C>.</> },
+          { name: "playerChannel", type: "string", children: <>The channel for reports players send. Defaults to <C>channel</C>.</> },
           { name: "beforeSend", type: "function", children: "Gets each report before it's sent; return it, changed or not, or nil to drop it." },
         ]}
       />

@@ -133,6 +133,7 @@ export type Project = {
   rules: ProjectRules;
   /** Spam handling and blocked reporters. On every plan. */
   protection: ProjectProtection;
+  channels: ProjectChannel[];
   lastReportAt: string | null;
   createdAt: string;
 };
@@ -290,7 +291,16 @@ export type Connection = {
   destinationCount?: number;
 };
 
-export type RoutingRule = { priorities?: Priority[]; sources?: string[]; environments?: string[] };
+export type RoutingRule = {
+  priorities?: Priority[];
+  sources?: string[];
+  environments?: string[];
+  /** The project's channels this destination belongs to. None: it takes what was sent to no channel. */
+  channels?: string[];
+};
+
+/** A named way into a project, with its own webhook address: …/webhook/{key}/{slug}. */
+export type ProjectChannel = { slug: string; name: string; deliverRepeats?: boolean };
 
 export type DeliveryPolicy = {
   maxAttempts: number;

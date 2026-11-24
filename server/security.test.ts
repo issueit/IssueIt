@@ -137,6 +137,19 @@ describe("routing rules", () => {
     expect(matchesRule({ priorities: ["critical", "high"], sources: ["widget"] }, report)).toBe(true);
     expect(matchesRule({ environments: ["staging"] }, report)).toBe(false);
   });
+  it("keeps channels apart: a destination in a channel takes only its posts", () => {
+    const shop = { ...report, channel: "shop" };
+    // No channel on the destination: only what was sent to no channel.
+    expect(matchesRule({}, shop)).toBe(false);
+    expect(matchesRule({}, { ...report, channel: null })).toBe(true);
+    // In a channel: only that channel's posts, never the default ones.
+    expect(matchesRule({ channels: ["shop"] }, shop)).toBe(true);
+    expect(matchesRule({ channels: ["shop", "admin"] }, { ...report, channel: "admin" })).toBe(true);
+    expect(matchesRule({ channels: ["shop"] }, report)).toBe(false);
+    expect(matchesRule({ channels: ["admin"] }, shop)).toBe(false);
+    // The other filters still apply inside a channel.
+    expect(matchesRule({ channels: ["shop"], priorities: ["low"] }, shop)).toBe(false);
+  });
 });
 
 describe("report formatting", () => {

@@ -8,6 +8,7 @@ import { decrypt, encrypt, randomToken, sha256 } from "../lib/crypto";
 import { AppError, badRequest, notFound } from "../lib/errors";
 import { assertRoom, has, upgradeRequired } from "../billing/entitlements";
 import { checkRules } from "../lib/rules";
+import { channelsSchema } from "../lib/channels";
 import { newId } from "../lib/ids";
 import { storage } from "../lib/storage";
 import { body, httpUrl, type AppEnv } from "../http";
@@ -293,6 +294,8 @@ export const projectRoutes = new Hono<AppEnv>()
         groupDuplicates: z.boolean().optional(),
         rules: rulesSchema.optional(),
         protection: protectionSchema.optional(),
+        /** The whole list, as the dashboard shows it. A channel left out is removed. */
+        channels: channelsSchema.optional(),
       }),
     );
     // Taking Issueit's name off the widget is what the paid plans sell; the
@@ -329,10 +332,12 @@ export const projectRoutes = new Hono<AppEnv>()
         // Replaces what's there: the editor sends the whole thing, and a
         // blocked reporter removed in the dashboard has to actually go.
         ...(input.protection && { protection: input.protection as ProjectProtection }),
+        ...(input.channels && { channels: input.channels }),
         updatedAt: new Date(),
       })
       .where(eq(schema.projects.id, project.id))
       .returning();
+    if (input.channels) await forgetChannels(project.id, input.channels.map((ch) => ch.slug));
     return c.json({ project: projectView(updated) });
   })
   /** Sends a sample reporter email to you, using the saved settings. */
@@ -454,6 +459,25 @@ export const projectRoutes = new Hono<AppEnv>()
 type ProjectRow = typeof schema.projects.$inferSelect;
 
 /** What the dashboard sees: settings with defaults filled in, and no storage details. */
+/**
+ * A removed channel leaves its destinations' rules. A destination whose only
+ * channel went goes back to taking reports sent to no channel, rather than
+ * silently taking nothing.
+ */
+async function forgetChannels(projectId: string, kept: string[]) {
+  const destinations = await db.query.destinations.findMany({ where: eq(schema.destinations.projectId, projectId), columns: { id: true, rule: true } });
+  for (const d of destinations) {
+    if (!d.rule.channels?.length) continue;
+    const channels = d.rule.channels.filter((slug) => kept.includes(slug));
+    if (channels.length === d.rule.channels.length) continue;
+    const { channels: _gone, ...rest } = d.rule;
+    await db
+      .update(schema.destinations)
+      .set({ rule: channels.length ? { ...rest, channels } : rest, updatedAt: new Date() })
+      .where(eq(schema.destinations.id, d.id));
+  }
+}
+
 function projectView({ logo: _logo, reportSeq: _seq, ...p }: ProjectRow) {
   return { ...p, widget: widgetWithDefaults(p.widget), emails: emailsWithDefaults(p.emails) };
 }

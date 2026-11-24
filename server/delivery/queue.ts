@@ -10,8 +10,12 @@ import { effectivePolicy, shapeReport } from "./policy";
 
 type Report = typeof schema.reports.$inferSelect;
 
-/** Empty lists mean "any". */
-export function matchesRule(rule: RoutingRule, report: Pick<Report, "priority" | "source" | "environment">) {
+/**
+ * Empty lists mean "any" — except channels: a destination in no channel
+ * takes what was sent to no channel, and one in channels takes only theirs.
+ */
+export function matchesRule(rule: RoutingRule, report: Pick<Report, "priority" | "source" | "environment"> & { channel?: string | null }) {
+  if (rule.channels?.length ? !report.channel || !rule.channels.includes(report.channel) : !!report.channel) return false;
   if (rule.priorities?.length && !rule.priorities.includes(report.priority)) return false;
   if (rule.sources?.length && !rule.sources.includes(report.source)) return false;
   if (rule.environments?.length && !rule.environments.includes(report.environment ?? "")) return false;
