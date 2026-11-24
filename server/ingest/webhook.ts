@@ -129,3 +129,16 @@ export function withDefaults(raw: Record<string, unknown>, defaults: HookDefault
 
 /** Roblox's HttpService says who it is, and nothing else does. */
 export const isRobloxAgent = (ua: string | undefined) => !!ua && /^Roblox\//i.test(ua);
+
+/**
+ * Why a key that starts like one matched nothing, as precisely as can be
+ * said without repeating it: keys end up in game consoles and screenshots,
+ * so only the characters that shouldn't be there are named.
+ */
+export function whyNoKey(token: string): string {
+  if (/…|\.\.\.|[<>{}]|x{4,}/i.test(token)) return "It looks like a placeholder from an example, not a real key. Copy yours from the project's API keys.";
+  const odd = [...new Set(token.replace(/[A-Za-z0-9_]/g, ""))].slice(0, 5);
+  if (odd.length) return `It contains ${odd.map((ch) => JSON.stringify(ch)).join(", ")}, which a key never does, so something extra was copied with it.`;
+  if (token.length < 30) return `It's only ${token.length} characters long, so it was probably cut off when it was copied.`;
+  return "It may have been rotated: copy the current one from the project's API keys.";
+}

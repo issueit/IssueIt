@@ -26,7 +26,7 @@ import { isBrowserToken, MAX_TOKEN_SECONDS, mintBrowserToken, readBrowserToken }
 import { contentHashOf, isBlocked, scoreSpam, spamCheckEnabled, velocityFor, type SpamVerdict } from "./protection";
 import { matchesRule } from "../delivery/queue";
 import { getProvider } from "../integrations";
-import { fromDiscord, isRobloxAgent, looksLikeDiscord, withDefaults, type HookDefaults } from "./webhook";
+import { fromDiscord, isRobloxAgent, looksLikeDiscord, whyNoKey, withDefaults, type HookDefaults } from "./webhook";
 
 /**
  * The ingestion API: POST /v1/{project_id}/reports. Kept apart from the
@@ -264,7 +264,7 @@ async function authenticate(c: Context, project: Project, auth: string | undefin
      * key, so naming the project it belongs to tells them nothing new — and
      * "invalid" alone, in a game's output window, left people guessing.
      */
-    if (!key) throw new AppError(401, "invalid_key", `That secret key doesn't exist${/[^A-Za-z0-9_]/.test(token) ? ": it contains characters a key never has, so it may have been copied with something extra" : ". It may have been rotated, or not copied whole"}.`);
+    if (!key) throw new AppError(401, "invalid_key", `That secret key doesn't exist. ${whyNoKey(token)}`);
     if (key.revokedAt) throw new AppError(401, "invalid_key", "That secret key was revoked or replaced. Copy the current one from the project's API keys.");
     if (key.projectId !== project.id) throw new AppError(401, "invalid_key", `That secret key belongs to another project (${key.projectId}), not ${project.id}. Use it with that project's address.`);
     // A secret key in a browser is a leaked key.

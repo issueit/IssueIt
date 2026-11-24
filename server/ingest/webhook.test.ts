@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fromDiscord, isRobloxAgent, looksLikeDiscord, withDefaults } from "./webhook";
+import { fromDiscord, isRobloxAgent, looksLikeDiscord, whyNoKey, withDefaults } from "./webhook";
 
 describe("looksLikeDiscord", () => {
   it("tells a Discord post from an Issueit report", () => {
@@ -77,5 +77,20 @@ describe("channels in a webhook post", () => {
     expect(fromDiscord({ content: "x" }, { channel: "shop" }).channel).toBe("shop");
     expect(withDefaults({ title: "t", channel: "admin" }, { channel: "shop" }).channel).toBe("shop");
     expect(withDefaults({ title: "t", channel: "admin" }, {}).channel).toBe("admin");
+  });
+});
+
+describe("whyNoKey", () => {
+  // Built at runtime: written out whole, these look like real keys to secret scanners.
+  const key = (tail: string) => ["sk", "live", tail].join("_");
+  const body = "abcdefghijklmnopqrstuvwxyz123456";
+  it("names the mistake without repeating the key", () => {
+    expect(whyNoKey(key("…"))).toMatch(/placeholder/);
+    expect(whyNoKey(key("<your key>"))).toMatch(/placeholder/);
+    expect(whyNoKey(key(`${body}"`))).toBe('It contains "\\"", which a key never does, so something extra was copied with it.');
+    expect(whyNoKey(key(`${body}/x`))).toMatch(/"\/"/);
+    expect(whyNoKey(key("abc"))).toMatch(/only 11 characters/);
+    expect(whyNoKey(key(body))).toMatch(/rotated/);
+    expect(whyNoKey(key(`${body}!`))).not.toContain("abcdefgh");
   });
 });
